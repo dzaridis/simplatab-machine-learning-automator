@@ -2,11 +2,14 @@
 __pycache__/
 *.py[cod]
 *$py.class
-behave_metrics.py
-*.ipynb
+#*.ipynb
+radiomics_setup.py
 # C extensions
 *.so
 
+# Folders
+Feature Selection.txt
+Data
 # Distribution / packaging
 .Python
 build/

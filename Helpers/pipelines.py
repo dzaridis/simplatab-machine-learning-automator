@@ -7,20 +7,54 @@ from xgboost import XGBClassifier
 from sklearn.pipeline import Pipeline
 import numpy as np
 import featurewiz
-from sklearn.metrics import make_scorer
+from sklearn.metrics import make_scorer, roc_auc_score
+from sklearn.feature_selection import RFE, SelectFromModel, mutual_info_classif
+from sklearn.linear_model import LogisticRegression, Lasso
+from sklearn.ensemble import RandomForestClassifier
+import xgboost as xgb
 
 class FeatureSelection:
     def __init__(self) -> None:
         self.selected_features = None
 
     def featurewiz_selection(self, X_train, y_train, corr_limit=0.9):
-        self.selected_features, trainm  = featurewiz.featurewiz(X_train.join(y_train), target = "Target", corr_limit=corr_limit, 
-                            verbose=0, 
-                            feature_engg='', 
-                            dask_xgboost_flag=False, 
-                            nrows=None, 
-                            skip_sulov=False, 
-                            skip_xgboost=False)
+        # Assume featurewiz is correctly imported and used here.
+        self.selected_features, _ =featurewiz.featurewiz(X_train.join(y_train), target='Target', 
+                                            corr_limit=corr_limit, verbose=0, feature_engg='',
+                                            dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
+
+    def correlation_filter(self, X_train, y_train, threshold=0.8):
+        corr_matrix = X_train.corr().abs()
+        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+        to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+        self.selected_features = [feature for feature in X_train.columns if feature not in to_drop]
+
+    def rfe_selection(self, X_train, y_train, n_features_to_select=5):
+        model = LogisticRegression()
+        rfe = RFE(model, n_features_to_select=n_features_to_select)
+        rfe.fit(X_train, y_train)
+        self.selected_features = X_train.columns[rfe.support_]
+
+    def lasso_selection(self, X_train, y_train, alpha=0.001):
+        model = Lasso(alpha=alpha)
+        model.fit(X_train, y_train)
+        self.selected_features = X_train.columns[model.coef_ != 0]
+
+    def random_forest_selection(self, X_train, y_train, threshold=0.01):
+        model = RandomForestClassifier()
+        model.fit(X_train, y_train)
+        importances = model.feature_importances_
+        self.selected_features = X_train.columns[importances > threshold]
+
+    def xgboost_selection(self, X_train, y_train, threshold=0.01):
+        model = xgb.XGBClassifier()
+        model.fit(X_train, y_train)
+        importances = model.feature_importances_
+        self.selected_features = X_train.columns[importances > threshold]
+
+    def mutual_info_selection(self, X_train, y_train, threshold=0.01):
+        mi = mutual_info_classif(X_train, y_train)
+        self.selected_features = X_train.columns[mi > threshold]
 
     def get_features(self):
         return self.selected_features
@@ -49,10 +83,10 @@ class FeatureSelector:
         self.X_train = X_train
         self.y_train = y_train
 
-    def select_features(self, corr_limit=0.9):
-        fw = FeatureSelection()
-        fw.featurewiz_selection(self.X_train, self.y_train, corr_limit=corr_limit)
-        selected_features = fw.get_features()
+    def select_features(self, method='featurewiz', **kwargs):
+        fs = FeatureSelection()
+        getattr(fs, f"{method}_selection")(self.X_train, self.y_train, **kwargs)
+        selected_features = fs.get_features()
         self.X_train = self.X_train.loc[:, selected_features]
         return selected_features
 
@@ -138,9 +172,9 @@ class MLPipeline:
         self.feature_selector = FeatureSelector(self.X_train, self.y_train)
         self.model_trainer = None  # To be initialized after feature selection
 
-    def execute_feature_selection(self, corr_limit=0.9):
+    def execute_feature_selection(self, method = "featurewiz", **kwargs):
         self.feature_selector.X_train,self.feature_selector.y_train = self.X_train, self.y_train
-        self.selected_features = self.feature_selector.select_features(corr_limit)
+        self.selected_features = self.feature_selector.select_features(method, **kwargs)
         self.X_train = self.X_train.loc[:, self.selected_features]
 
     def execute_preprocessing(self):
@@ -148,11 +182,11 @@ class MLPipeline:
         self.preprocessor_pipe.auto_select_transformers()
         self.X_train = self.preprocessor_pipe.preprocessor.fit_transform(self.X_train)
 
-    def train_model(self, perform_grid_search=False, param_grid=None, cv=2, scoring = balanced_FAR_FRR):
+    def train_model(self, perform_grid_search=False, param_grid=None, cv=2):
         self.model_trainer = ModelTrainer(self.X_train, self.y_train, self.classifier, self.classifier_hyperparameters)
+        auc_scorer = make_scorer(roc_auc_score, needs_threshold=True)
         if perform_grid_search:
-            balanced_scorer = make_scorer(scoring, greater_is_better=False)
-            self.best_model = self.model_trainer.perform_grid_search(param_grid, cv=cv, scoring= balanced_scorer)
+            self.best_model = self.model_trainer.perform_grid_search(param_grid, cv=cv, scoring= auc_scorer)
         else:
             self.best_model = self.model_trainer.fit()
         if self.best_model is None:
@@ -167,9 +201,8 @@ class MLPipeline:
             raise NotFittedError("Model not trained yet. Call train_model() before prediction.")
 
 class ModelEvaluator:
-    def __init__(self, pipeline, X_val, X_test):
+    def __init__(self, pipeline, X_test):
         self.pipeline = pipeline
-        self.X_val = X_val
         self.X_test = X_test
 
     def apply_transformations(self, X):
@@ -183,16 +216,11 @@ class ModelEvaluator:
 
     def evaluate(self):
         # Apply transformations to validation and test sets
-        self.X_val_transformed = self.apply_transformations(self.X_val)
         self.X_test_transformed = self.apply_transformations(self.X_test)
-
-        # Evaluate on validation set
-        y_val_pred = self.pipeline.predict(self.X_val_transformed)
-        # Add evaluation metrics as needed, e.g., accuracy, ROC AUC, etc. for validation set
 
         # Evaluate on test set
         y_test_pred = self.pipeline.predict(self.X_test_transformed)
         # Add evaluation metrics as needed for test set
 
         # Return evaluation results
-        return {"validation_results": y_val_pred, "test_results": y_test_pred}
+        return {"x_test": self.X_test_transformed, "y_test":y_test_pred}

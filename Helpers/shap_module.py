@@ -43,27 +43,44 @@ def save_shap_values(shap_values:np.array, features:list, path:str, model_name:s
     plt.clf()
 
 class ShapAnalysis:
-    def __init__(self, X_train:np.array, X_val:np.array, model:BaseEstimator, features:list) -> None:
+    def __init__(self, X_train: np.array, X_val: np.array, model: BaseEstimator, features: list) -> None:
         self.xtr = X_train
         self.xvl = X_val
         self.explainer = None
         self.model = model
         self.features = features
-    def perform_shap(self):
-
-        if isinstance(self.model, (XGBClassifier, RandomForestClassifier, DecisionTreeClassifier, AdaBoostClassifier)):
-            self.explainer = shap.TreeExplainer(self.model, shap.sample(self.xtr, int(0.1*len(self.xtr))))
-        else:
-            self.explainer = shap.KernelExplainer(self.model.predict_proba, shap.sample(self.xtr, int(0.1*len(self.xtr))))
-        return self.explainer.shap_values(self.xvl)
     
-    def plot_shap_values(self, model_name:str, path:str):
+    def perform_shap(self):
+        sample_size = int(len(self.xvl))
+        sampled_data = shap.sample(self.xvl, sample_size)
+        print(f"Sample size: {sample_size}, Sampled data shape: {sampled_data.shape}")
+        
+        if isinstance(self.model, (XGBClassifier, RandomForestClassifier, DecisionTreeClassifier, AdaBoostClassifier)):
+            self.explainer = shap.TreeExplainer(self.model)
+        else:
+            self.explainer = shap.KernelExplainer(self.model.predict_proba, sampled_data)
+        
+        shap_values = self.explainer.shap_values(self.xvl)
+        print(f"SHAP values shape: {np.array(shap_values).shape}")
+        return shap_values
+    
+    def plot_shap_values(self, model_name: str, path: str):
         plt.clf()
-        shap.summary_plot(self.explainer.shap_values(self.xvl)[1],
-                        self.xvl,
-                        feature_names= self.features, show=False)
-        # Save the plot to a file
-        plt.savefig(os.path.join(path,model_name+"_ShapFeatures.png"), dpi=400, bbox_inches='tight')
-        # Close the plot to free up memory
-        #save_shap_values(self.explainer.shap_values(self.model.named_steps['preprocessor'].transform(self.xvl)), pipeline=self.model, path = path)
-        #plt.clf()
+        shap_values = self.explainer.shap_values(self.xvl)
+        print(f"SHAP values for plotting shape: {np.array(shap_values).shape}")
+        
+        if isinstance(shap_values, list):
+            # Assuming binary classification and interested in SHAP values for class 1
+            values_to_plot = shap_values[1]
+        else:
+            # For regression or binary classification models where a single array is returned
+            values_to_plot = shap_values
+        
+        shap.summary_plot(values_to_plot, self.xvl, feature_names=self.features,max_display=10, show=False, plot_type="dot")
+        
+        if path:
+            plot_path = os.path.join(path, model_name + "_ShapFeatures.png")
+        else:
+            plot_path = model_name + "_ShapFeatures.png"
+        plt.savefig(plot_path, dpi=400, bbox_inches='tight')
+        plt.close()
