@@ -18,10 +18,12 @@ class FeatureSelection:
         self.selected_features = None
 
     def featurewiz_selection(self, X_train, y_train, corr_limit=0.9):
-        # Assume featurewiz is correctly imported and used here.
-        self.selected_features, _ =featurewiz.featurewiz(X_train.join(y_train), target='Target', 
-                                            corr_limit=corr_limit, verbose=0, feature_engg='',
-                                            dask_xgboost_flag=False, nrows=None, skip_sulov=False, skip_xgboost=False)
+        self.feat_sel = featurewiz.FeatureWiz(corr_limit=corr_limit, verbose=0)
+        self.feat_sel.fit(X_train, y_train)
+        self.selected_features = self.feat_sel.transform(X_train).columns
+
+    def get_features(self):
+        return self.selected_features, self.feat_sel
 
     def correlation_filter(self, X_train, y_train, threshold=0.8):
         corr_matrix = X_train.corr().abs()
@@ -55,9 +57,6 @@ class FeatureSelection:
     def mutual_info_selection(self, X_train, y_train, threshold=0.01):
         mi = mutual_info_classif(X_train, y_train)
         self.selected_features = X_train.columns[mi > threshold]
-
-    def get_features(self):
-        return self.selected_features
     
 class DataPreprocessor:
     def __init__(self, X_train):
@@ -86,9 +85,9 @@ class FeatureSelector:
     def select_features(self, method='featurewiz', **kwargs):
         fs = FeatureSelection()
         getattr(fs, f"{method}_selection")(self.X_train, self.y_train, **kwargs)
-        selected_features = fs.get_features()
-        self.X_train = self.X_train.loc[:, selected_features]
-        return selected_features
+        self.features,  self.feat_sel = fs.get_features()
+        self.X_train = self.feat_sel.transform(self.X_train)
+        return self.features, self.feat_sel
 
 class ModelTrainer:
     def __init__(self, X_train, y_train, classifier, classifier_hyperparameters):
@@ -97,6 +96,7 @@ class ModelTrainer:
         self.classifier = classifier
         self.classifier_hyperparameters = classifier_hyperparameters
         self.clas = None
+        self.best_params = None
 
     def fit(self):
         if not is_classifier(self.classifier):
@@ -116,11 +116,12 @@ class ModelTrainer:
             raise ValueError("Grid search did not yield a best estimator.")
         
         self.clas = self.grid_search.best_estimator_
+        self.best_params = self.grid_search.best_params_
 
         # For debugging:
         print(f"Best estimator from grid search: {self.clas}")
         print(f"Best score:{self.grid_search.best_score_}")
-        return self.clas
+        return self.clas, self.best_params
 
     def __adjust_class_weights(self, classifier, hyperparameters):
         """Adjusts class weights for the classifier if applicable.
@@ -166,6 +167,7 @@ class MLPipeline:
         self.classifier = classifier
         self.classifier_hyperparameters = classifier_hyperparameters
         self.selected_features = None
+        self.best_params = None
 
         # Initialize components of the pipeline
         self.preprocessor_pipe = DataPreprocessor(self.X_train)
@@ -174,8 +176,8 @@ class MLPipeline:
 
     def execute_feature_selection(self, method = "featurewiz", **kwargs):
         self.feature_selector.X_train,self.feature_selector.y_train = self.X_train, self.y_train
-        self.selected_features = self.feature_selector.select_features(method, **kwargs)
-        self.X_train = self.X_train.loc[:, self.selected_features]
+        self.selected_features, self.feat_sel = self.feature_selector.select_features(method, **kwargs)
+        self.X_train = self.feat_sel.transform(self.X_train)
 
     def execute_preprocessing(self):
         self.preprocessor_pipe.X_train = self.X_train
@@ -186,14 +188,27 @@ class MLPipeline:
         self.model_trainer = ModelTrainer(self.X_train, self.y_train, self.classifier, self.classifier_hyperparameters)
         auc_scorer = make_scorer(roc_auc_score, needs_threshold=True)
         if perform_grid_search:
-            self.best_model = self.model_trainer.perform_grid_search(param_grid, cv=cv, scoring= auc_scorer)
+            self.best_model, self.best_params = self.model_trainer.perform_grid_search(param_grid, cv=cv, scoring= auc_scorer)
         else:
             self.best_model = self.model_trainer.fit()
+            self.best_params = self.best_model.get_params()
         if self.best_model is None:
             raise ValueError("Failed to train the model.")
         else:
             print(f"Model trained successfully: {self.best_model}")
 
+    def build_pipeline(self):
+        from sklearn.pipeline import Pipeline
+        ppln = Pipeline([
+            ('FeatureWizFs',self.feat_sel),
+            ('preprocessor', self.preprocessor_pipe.preprocessor),
+            ('model', self.best_model)
+        ])
+        return ppln
+    
+    def get_best_parameters(self):
+        return self.best_params 
+    
     def predict(self, X_test):
         if self.best_model:
             return self.best_model.predict_proba(X_test)
@@ -205,22 +220,22 @@ class ModelEvaluator:
         self.pipeline = pipeline
         self.X_test = X_test
 
-    def apply_transformations(self, X):
+    # def apply_transformations(self, X):
         
-        # put a try/except to check whether a feature selector is applied
-        selected_features = self.pipeline.selected_features
-        X_transformed = X.loc[:, selected_features]
-        # Apply preprocessing
-        X_transformed = self.pipeline.preprocessor_pipe.preprocessor.transform(X_transformed)
-        return X_transformed
+    #     # put a try/except to check whether a feature selector is applied
+    #     selected_features = self.pipeline.selected_features
+    #     X_transformed = X.loc[:, selected_features]
+    #     # Apply preprocessing
+    #     X_transformed = self.pipeline.preprocessor_pipe.preprocessor.transform(X_transformed)
+    #     return X_transformed
 
     def evaluate(self):
         # Apply transformations to validation and test sets
-        self.X_test_transformed = self.apply_transformations(self.X_test)
+        #self.X_test_transformed = self.apply_transformations(self.X_test)
 
         # Evaluate on test set
-        y_test_pred = self.pipeline.predict(self.X_test_transformed)
-        # Add evaluation metrics as needed for test set
-
+        #y_test_pred = self.pipeline.predict(self.X_test_transformed)
+        # Add evaluat   ion metrics as needed for test set
+        y_test_pred = self.pipeline.predict_proba(self.X_test)
         # Return evaluation results
-        return {"x_test": self.X_test_transformed, "y_test":y_test_pred}
+        return {"y_test":y_test_pred}
