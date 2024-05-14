@@ -27,8 +27,8 @@ This pipeline trains and evaluates various classification models, providing insi
 
 ## Inputs
 - **CSV Files**: Must not contain missing values.
-  - **Train.csv**: Features and target (last column). Used for K-Fold cross-validation and threshold tuning.
-  - **Test.csv**: Features and target (last column). Used for validation of thresholds, metrics, ROC curves, and SHAP analysis.
+  - **Train.csv**: Features and target (last column named as "Target"). Used for K-Fold cross-validation and threshold tuning.
+  - **Test.csv**: Features and target (last column named as "Target"). Used for validation of thresholds, metrics, ROC curves, and SHAP analysis.
 
 For the Docker version, place `Train.csv` and `Test.csv` in an input volume folder.
 
