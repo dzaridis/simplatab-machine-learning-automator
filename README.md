@@ -97,9 +97,13 @@ Prepares data for training:
 
 
 ## Authors
+Main Work Implemented by:  
 - **Dimitrios Zaridis** (corresponding), M.Eng, PhD Student @ National Technical University of Athens
-- **Charalampos Kalantzopoulos**, M.Sc
 - **Eugenia Mylona**, Ph.D
+- **Vasileios B. Pezoulas**, Ph.D
+
+Assistance by:  
+- **Charalampos Kalantzopoulos**, M.Sc
 - **Nikolaos S. Tachos**, Ph.D
 - **Dimitrios I. Fotiadis**, Professor of Biomedical Technology, University of Ioannina
 
