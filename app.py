@@ -1,7 +1,7 @@
 from flask import Flask, request, render_template, redirect, url_for
 import pandas as pd
 import os
-from pipelines_main import train_k_fold, external_test
+from Helpers.pipelines_main import train_k_fold, external_test
 import warnings
 warnings.simplefilter(action='ignore', category=Warning)
 
