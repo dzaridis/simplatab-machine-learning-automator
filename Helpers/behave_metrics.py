@@ -172,4 +172,4 @@ class ROCCurveEvaluator:
         sns.despine()  # Remove the top and right spines
         if save_path:
             plt.savefig(os.path.join(save_path,"ROC CURVES.png"), format='png', dpi=400)  # Save the figure
-        plt.show()
+        #plt.show()

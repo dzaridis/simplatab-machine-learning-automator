@@ -33,25 +33,25 @@ class FeatureSelection:
 
     def rfe_selection(self, X_train, y_train, n_features_to_select=5):
         model = LogisticRegression()
-        rfe = RFE(model, n_features_to_select=n_features_to_select)
-        rfe.fit(X_train, y_train)
-        self.selected_features = X_train.columns[rfe.support_]
+        self.feat_sel = RFE(model, n_features_to_select=n_features_to_select)
+        self.feat_sel.fit(X_train, y_train)
+        self.selected_features = X_train.columns[self.feat_sel.support_]
 
     def lasso_selection(self, X_train, y_train, alpha=0.001):
-        model = Lasso(alpha=alpha)
-        model.fit(X_train, y_train)
-        self.selected_features = X_train.columns[model.coef_ != 0]
+        self.feat_sel = Lasso(alpha=alpha)
+        self.feat_sel.fit(X_train, y_train)
+        self.selected_features = X_train.columns[self.feat_sel.coef_ != 0]
 
     def random_forest_selection(self, X_train, y_train, threshold=0.01):
-        model = RandomForestClassifier()
-        model.fit(X_train, y_train)
-        importances = model.feature_importances_
+        self.feat_sel = RandomForestClassifier()
+        self.feat_sel.fit(X_train, y_train)
+        importances = self.feat_sel.feature_importances_
         self.selected_features = X_train.columns[importances > threshold]
 
     def xgboost_selection(self, X_train, y_train, threshold=0.01):
-        model = xgb.XGBClassifier()
-        model.fit(X_train, y_train)
-        importances = model.feature_importances_
+        self.feat_sel = xgb.XGBClassifier()
+        self.feat_sel.fit(X_train, y_train)
+        importances = self.feat_sel.feature_importances_
         self.selected_features = X_train.columns[importances > threshold]
 
     def mutual_info_selection(self, X_train, y_train, threshold=0.01):
