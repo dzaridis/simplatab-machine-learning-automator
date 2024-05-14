@@ -1,6 +1,6 @@
 
 # Machine Learning Automator
-
+![ML Pipeline](images_materials/MLPipeline.png)
 ## Overview
 Machine Learning Automator is a comprehensive machine learning pipeline designed to automate the process of training, evaluating, and validating classification models. It provides a robust framework for feature selection, preprocessing, hyperparameter tuning, and model evaluation, ensuring efficient and accurate model performance.
 
@@ -27,8 +27,8 @@ This pipeline trains and evaluates various classification models, providing insi
 
 ## Inputs
 - **CSV Files**: Must not contain missing values.
-  - **Train.csv**: Features and target (last column named as "Target"). Used for K-Fold cross-validation and threshold tuning.
-  - **Test.csv**: Features and target (last column named as "Target"). Used for validation of thresholds, metrics, ROC curves, and SHAP analysis.
+  - **Train.csv**: Features and target (last column). Used for K-Fold cross-validation and threshold tuning.
+  - **Test.csv**: Features and target (last column). Used for validation of thresholds, metrics, ROC curves, and SHAP analysis.
 
 For the Docker version, place `Train.csv` and `Test.csv` in an input volume folder.
 
@@ -94,4 +94,13 @@ Prepares data for training:
 - **Metrics**: Computed on the `Test.csv` for the optimal threshold.
 - **Shapley Analysis**: Performed on a fraction of the test set (up to 100 instances).
 - **ROC Curves**: Reported for each algorithm on the testing dataset.
+
+
+## Authors
+- **Dimitrios Zaridis** (corresponding), M.Eng, PhD Student @ National Technical University of Athens
+- **Charalampos Kalantzopoulos**, M.Sc
+- **Eugenia Mylona**, Ph.D
+- **Nikolaos S. Tachos**, Ph.D
+- **Dimitrios I. Fotiadis**, Professor of Biomedical Technology, University of Ioannina
+
 
