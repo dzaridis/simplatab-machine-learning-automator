@@ -55,7 +55,7 @@ dt_hyperparameters = {
 }
 
 xgb_hyperparameters = {
-    'n_estimators': [3,5,10, 50],
+    'n_estimators': [3,5,10, 20],
     'learning_rate': [0.01, 0.1, 0.3],
     'max_depth': [None, 1,2, 3, 6, 10, 20],
     'subsample': [0.5, 0.7, 1],
@@ -101,7 +101,7 @@ def train_k_fold(X_train, y_train, k_folds=3):
             scores = me.evaluate()["y_test"]
 
             # Find optimal threshold
-            tho = behave_metrics.ThresholdOptimizer(ppln, xtrain, ytrain)
+            tho = behave_metrics.ThresholdOptimizer(ppln, xval, yval)
             thresh = tho.find_optimal_threshold(metric_to_track="AUC")
             thresholds_algo.update({f"fold_{i+1}":thresh})
 
@@ -150,8 +150,11 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
         # Perform Shap
         sp = shap_module.ShapAnalysis(X_val = X_test, pipeline_module = ppln, features=pipeline.selected_features) 
         shap_values,features = sp.perform_shap(), pipeline.selected_features
+        try:
+            os.mkdir(os.path.join("Materials", "Shap_Features"))
+        except OSError:
+            pass
 
-        os.mkdir(os.path.join("Materials", "Shap_Features"), exist_ok=True)
         path_shap = os.path.join("Materials", "Shap_Features")
         sp.plot_shap_values(model_name=nm, path= path_shap)
 
