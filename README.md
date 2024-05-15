@@ -37,6 +37,13 @@ sudo docker run -v /absolute_path/to/your/input_data:/input_data
                 dimzaridis/simplatab-machine-learning-automator:0.1-TestVersion (or latest)
 ```
 
+### Requirements for the Data
+1. The input folder must contain a Train.csv and a Test.csv files  
+2. The **CSVs** MUST not contain missing values  
+3. The target column should be   
+   a. **BINARY** with values **0 and 1**  
+   b. it should have the name **Target**  
+   c. It should contain a column named **"patient_id"** (It will change in the future)
 ## Inputs
 - **CSV Files**: Must not contain missing values.
   - **Train.csv**: Features and target (last column). Used for K-Fold cross-validation and threshold tuning.
