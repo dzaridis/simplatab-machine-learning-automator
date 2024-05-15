@@ -1,5 +1,5 @@
 
-# Machine Learning Automator
+# SIMPLATAB: **SI**mplified **M**achine **P**ipe**L**ine **A**utomator for **TAB**ular data
 ![ML Pipeline](images_materials/MLPipeline.png)
 ## Overview
 Machine Learning Automator is a comprehensive machine learning pipeline designed to automate the process of training, evaluating, and validating classification models. It provides a robust framework for feature selection, preprocessing, hyperparameter tuning, and model evaluation, ensuring efficient and accurate model performance.
