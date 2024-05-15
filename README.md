@@ -7,6 +7,7 @@ Machine Learning Automator is a comprehensive machine learning pipeline designed
 ## Contents
 - [Context](#context)
 - [Requirements](#requirements)
+- [Docker Image](#Docker-Image-Available-Publicly)
 - [Inputs](#inputs)
 - [Outputs](#outputs)
 - [Main Advantages](#main-advantages)
