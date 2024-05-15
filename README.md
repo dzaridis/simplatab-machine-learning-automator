@@ -25,6 +25,18 @@ This pipeline trains and evaluates various classification models, providing insi
 - **Docker (for Docker version)**
 - **Required Python Libraries**: `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `xgboost`, `shap`, `featurewiz`
 
+## Docker Image
+You can pull Directly the Docker Image as   
+```bash
+docker push dimzaridis/simplatab-machine-learning-automator:0.1-TestVersion
+```
+and run the docker image as  
+```bash
+sudo docker run -v /absolute_path/to/your/input_data:/input_data  
+                -v /absolute_path/to/your/Empty/Folder/For_the/outcomes/to_be/stored:/Materials  
+                dimzaridis/simplatab-machine-learning-automator:0.1-TestVersion (or latest)
+```
+
 ## Inputs
 - **CSV Files**: Must not contain missing values.
   - **Train.csv**: Features and target (last column). Used for K-Fold cross-validation and threshold tuning.
