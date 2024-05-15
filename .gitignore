@@ -11,6 +11,8 @@ radiomics_setup.py
 Feature Selection.txt
 Data
 Kalliatakis
+DockerTest
+Guide
 # Distribution / packaging
 .Python
 build/
