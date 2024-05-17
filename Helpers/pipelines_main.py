@@ -144,6 +144,7 @@ names = []
 classifiers = []
 hypers = []
 
+METRIC_TO_TRACK = params["Metric For Threshold Optimization"]
 GRID_SEARCH_ENABLING = params["apply_grid_search"]["enabled"]
 
 # Iterate over the machine learning models specified in the YAML file
@@ -168,6 +169,7 @@ def train_k_fold(X_train, y_train):
     # to add the automated k-fold selector based on the number of y
     skf = StratifiedKFold(n_splits=k_folds, shuffle = True, random_state=10)
     for cls, hp, nm in zip(classifiers, hypers, names):
+        print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         # find optimal parameters
         pipeline = pipelines.MLPipeline(X_train, y_train, cls, hp)
         pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
@@ -198,7 +200,7 @@ def train_k_fold(X_train, y_train):
 
             # Find optimal threshold
             tho = behave_metrics.ThresholdOptimizer(ppln, xval, yval)
-            thresh = tho.find_optimal_threshold(metric_to_track="F-score")
+            thresh = tho.find_optimal_threshold(metric_to_track=METRIC_TO_TRACK)
             thresholds_algo.update({f"fold_{i+1}":thresh})
 
             # Compute metrics on that threshold
@@ -208,6 +210,7 @@ def train_k_fold(X_train, y_train):
             scores_storage_algo.update({f"fold_{i+1}":scores_dict})
         scores_storage.update({nm:scores_storage_algo})
         thresholds.update({nm:thresholds_algo})
+        print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
     MetricsReport.summary_results_excel(scores_storage, file = f"{NUMBER_OF_FOLDS}_fold_results", conf_matrix_name=f"Internal_{NUMBER_OF_FOLDS}_fold")
     return params_dict, scores_storage, thresholds
 
@@ -216,6 +219,7 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     params_inf= {}
     scores_inf = {}
     for cls, hp, nm in zip(classifiers, hypers, names):
+        print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         hpers = params_dict[nm]
         pipeline = pipelines.MLPipeline(X_train, y_train, cls, hpers)
         pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
@@ -258,26 +262,23 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
             with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
                 file.write(error_message)
             pass
-
+        print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
     MetricsReport.external_summary(scores_inf, file = "test_results", conf_matrix_name="Test")
     # display roc curves
     roc = behave_metrics.ROCCurveEvaluator(pipeline_dict_inf,X_test=X_test, y_true=y_test)
     roc.evaluate_models()
     roc.plot_roc_curves(save_path=r"./Materials")
 
+    save_path_for_models = os.path.join("./Materials", "Models")
+    os.makedirs(save_path_for_models, exist_ok=True)
+
     try:
-        try:
-            os.mkdir(os.path.join("Materials", "Models"))
-        except OSError:
-            pass
-        save_path_for_models = os.path.join("Materials", "Models")
         for name, pipeline in pipeline_dict_inf.items():
-            filename = f"{name}_pipeline.pkl"
+            filename = os.path.join(save_path_for_models, f"{name}_pipeline.pkl")
             with open(filename, "wb") as file:
-                pickle.dump(pipeline, os.path.join(save_path_for_models,file))
+                pickle.dump(pipeline, file)
             print(f"Saved {name} pipeline to {filename}")
-    except:
+    except Exception as e:
         error_message = f"Error here: {e}\n"
         with open(os.path.join("Materials", "Model_save_error_log.txt"), "a") as file:
             file.write(error_message)
-        pass
