@@ -2,7 +2,7 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.exceptions import NotFittedError
 from sklearn.base import BaseEstimator, is_classifier
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from xgboost import XGBClassifier
 from sklearn.pipeline import Pipeline
 import numpy as np
@@ -103,14 +103,17 @@ class ModelTrainer:
             raise ValueError("The provided classifier is not a valid scikit-learn classifier.")
 
         # Adjusting class weights if applicable
-        adjusted_hyperparameters = self.__adjust_class_weights(self.classifier, self.classifier_hyperparameters)
+        #adjusted_hyperparameters = self.__adjust_class_weights(self.classifier, self.classifier_hyperparameters)
 
         # Create and fit the pipeline
-        self.clas = self.classifier(**adjusted_hyperparameters).fit(self.X_train, self.y_train)
+        self.clas = self.classifier(**self.classifier_hyperparameters).fit(self.X_train, self.y_train)
         return self.clas
     
-    def perform_grid_search(self, param_grid, cv=5, scoring='recall'):
-        self.grid_search = GridSearchCV(self.classifier(), param_grid, cv=cv, scoring=scoring)
+    def perform_grid_search(self, param_grid, cv=5, scoring='recall', hp_type = None):
+        if hp_type=="Exhaustive":
+            self.grid_search = GridSearchCV(self.classifier(), param_grid, cv=cv, scoring=scoring, n_jobs=-1)
+        else:
+            self.grid_search = RandomizedSearchCV(self.classifier(), param_grid, n_iter=25, cv=cv, scoring=scoring, verbose=1, random_state=42, n_jobs=-1)
         self.grid_search.fit(self.X_train, self.y_train)
         if self.grid_search.best_estimator_ is None:
             raise ValueError("Grid search did not yield a best estimator.")
@@ -134,15 +137,17 @@ class ModelTrainer:
             dict: Adjusted hyperparameters.
         """
         # For classifiers that don't support 'class_weight' directly, handle separately
-        if classifier == XGBClassifier and "class_weight" in hyperparameters:
-            scale_pos_weight = self.__calculate_scale_pos_weight(self.y_train)
-            adjusted_hyperparameters = {**hyperparameters, 'scale_pos_weight': scale_pos_weight}
-        else:
-            adjusted_hyperparameters = hyperparameters
+        try:
+            if classifier == XGBClassifier and "class_weight" in hyperparameters:
+                scale_pos_weight = self.__calculate_scale_pos_weight(self.y_train)
+                adjusted_hyperparameters = {**hyperparameters, 'scale_pos_weight': scale_pos_weight}
+            else:
+                adjusted_hyperparameters = hyperparameters
+            adjusted_hyperparameters.pop("class_weight", None)
+        except:
+                adjusted_hyperparameters = {}
 
         # Removing 'class_weight' if not applicable
-        adjusted_hyperparameters.pop("class_weight", None)
-
         return adjusted_hyperparameters
 
     def __calculate_scale_pos_weight(self, y:np.array):
@@ -184,11 +189,11 @@ class MLPipeline:
         self.preprocessor_pipe.auto_select_transformers()
         self.X_train = self.preprocessor_pipe.preprocessor.fit_transform(self.X_train)
 
-    def train_model(self, perform_grid_search=False, param_grid=None, cv=2):
+    def train_model(self, perform_grid_search=False, param_grid=None, cv=3, hp_type = None):
         self.model_trainer = ModelTrainer(self.X_train, self.y_train, self.classifier, self.classifier_hyperparameters)
         auc_scorer = make_scorer(roc_auc_score, needs_threshold=True)
         if perform_grid_search:
-            self.best_model, self.best_params = self.model_trainer.perform_grid_search(param_grid, cv=cv, scoring= auc_scorer)
+            self.best_model, self.best_params = self.model_trainer.perform_grid_search(param_grid, cv=cv, scoring= auc_scorer, hp_type=hp_type)
         else:
             self.best_model = self.model_trainer.fit()
             self.best_params = self.best_model.get_params()

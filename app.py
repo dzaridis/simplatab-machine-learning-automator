@@ -15,7 +15,7 @@ def main(input_folder, output_folder):
     y_test = test['Target']
 
     # Run the pipeline
-    params_dict, scores_storage, thresholds = train_k_fold(X_train, y_train, k_folds=3)
+    params_dict, scores_storage, thresholds = train_k_fold(X_train, y_train)
     external_test(X_train, y_train, X_test, y_test, params_dict, thresholds)
 
 if __name__ == "__main__":

@@ -44,8 +44,9 @@ def save_shap_values(shap_values:np.array, features:list, path:str, model_name:s
     plt.clf()
 
 class ShapAnalysis:
-    def __init__(self, X_val: np.array, pipeline_module: Pipeline, features: list) -> None:
+    def __init__(self, X_val: np.array, y_val:np.array, pipeline_module: Pipeline, features: list) -> None:
         self.xvl = X_val
+        self.yvl = y_val
         self.explainer = None
         self.model = pipeline_module["model"]
         self.features = features
@@ -54,12 +55,19 @@ class ShapAnalysis:
     
     def perform_shap(self):
         
-        if int(len(self.xvl))>100:
-            sample_size=100
-        else:
-            sample_size = int(len(self.xvl))
-        sampled_data = shap.sample(self.xvl, sample_size)
-        print(f"Sample size: {sample_size}, Sampled data shape: {sampled_data.shape}")
+        # Filter positive and control samples
+        positive_indices = self.yvl[self.yvl == 1].index
+        control_indices = self.yvl[self.yvl == 0].index
+
+        # Ensure there are at least 10 samples, or use the maximum available
+        num_samples = min(len(positive_indices), len(control_indices), 7)
+
+        # Sample 10 instances from each class
+        sampled_positive = self.xvl.loc[positive_indices].sample(n=num_samples, random_state=42)
+        sampled_control = self.xvl.loc[control_indices].sample(n=num_samples, random_state=42)
+
+    # Combine the samples
+        sampled_data = pd.concat([sampled_positive, sampled_control])
         for item in self.ppln.named_steps.keys():
             if item != "model":
                 self.X_test_transformed = self.ppln.named_steps[item].transform(sampled_data)
