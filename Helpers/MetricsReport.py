@@ -19,7 +19,8 @@ def summary_results_excel(results, file:str, conf_matrix_name:str):
             'Specificity': [],
             'AUC': [],
             'F-score': [],
-            'Accuracy': []
+            'Accuracy': [],
+            'Balanced Accuracy': []
         }
         
         # Initialize a dictionary to store confusion matrix values
@@ -96,7 +97,8 @@ def external_summary(results, file:str, conf_matrix_name:str):
             'Specificity': metrics['Specificity'],
             'AUC': metrics['AUC'],
             'F-score': metrics['F-score'],
-            'Accuracy': metrics['Accuracy']
+            'Accuracy': metrics['Accuracy'],
+            'Balanced Accuracy': metrics['Balanced Accuracy']
         }
         
         # Store confusion matrix values

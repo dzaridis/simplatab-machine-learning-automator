@@ -16,6 +16,9 @@ from Helpers import shap_module
 from Helpers import MetricsReport
 import pickle
 import yaml
+
+import logging
+import traceback
 # Define the hyperparameters for each model
 hyperparameters_models_grid = {
     "Logistic Regression": {
@@ -24,7 +27,7 @@ hyperparameters_models_grid = {
             'penalty': ['l1', 'l2', 'elasticnet', 'none'],
             'C': [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000],
             'solver': ['liblinear', 'lbfgs', 'newton-cg', 'sag', 'saga'],
-            'max_iter': [50, 100, 200, 300, 500],
+            'max_iter': [300, 500, 1000, 2000],
             'l1_ratio': [0, 0.1, 0.2, 0.5, 0.7, 0.9, 1]
         },
         "default_params": {}
@@ -39,6 +42,7 @@ hyperparameters_models_grid = {
             'coef0': [0, 0.1, 0.5, 1, 2],
             'shrinking': [True, False],
             'tol': [1e-4, 1e-3, 1e-2, 1e-1],
+            'max_iter': [1000, 2000, 3000],
             'probability': [True]
         },
         "default_params": {}
@@ -86,7 +90,7 @@ hyperparameters_models_grid = {
             'alpha': [0.0001, 0.001, 0.01, 0.1, 1],
             'learning_rate': ['constant', 'invscaling', 'adaptive'],
             'learning_rate_init': [0.001, 0.01, 0.1],
-            'max_iter': [200, 300, 500, 1000],
+            'max_iter': [200, 300, 500, 1000, 2000, 3000],
             'shuffle': [True, False],
             'tol': [1e-4, 1e-3, 1e-2],
             'momentum': [0.9, 0.95, 0.99],
@@ -126,42 +130,42 @@ hyperparameters_models_grid = {
         "default_params": {}
     }
 }
+def read_yaml():
+    global CORRELATION_LIMIT, NUMBER_OF_FOLDS, HP_TYPE, METRIC_TO_TRACK, GRID_SEARCH_ENABLING, names, classifiers, hypers
+    yaml_file = os.path.join("./input_data", "machine_learning_parameters.yaml")
+    with open(yaml_file, 'r') as file:
+        params = yaml.safe_load(file)
 
-yaml_file = os.path.join("./input_data", "machine_learning_parameters.yaml")
-with open(yaml_file, 'r') as file:
-    params = yaml.safe_load(file)
+    CORRELATION_LIMIT = params["Correlation Limit"]
 
-CORRELATION_LIMIT = params["Correlation Limit"]
+    NUMBER_OF_FOLDS = params["number_of_k_folds"]
 
-NUMBER_OF_FOLDS = params["number_of_k_folds"]
+    if params["apply_grid_search"]["type"]["Randomized"]:
+        HP_TYPE = "Randomized"
+    else:
+        HP_TYPE = "Exhaustive"
 
-if params["apply_grid_search"]["type"]["Randomized"]:
-    HP_TYPE = "Randomized"
-else:
-    HP_TYPE = "Exhaustive"
+    METRIC_TO_TRACK = params["Metric For Threshold Optimization"]
+    GRID_SEARCH_ENABLING = params["apply_grid_search"]["enabled"]
+    names = []
+    classifiers = []
+    hypers = []
+    for model_name, is_enabled in params["Machine Learning Models"].items():
+        if is_enabled:
+            model_info = hyperparameters_models_grid.get(model_name)
+            if GRID_SEARCH_ENABLING:
+                names.append(model_name)
+                classifiers.append(model_info["classifier"])
+                hypers.append(model_info["params"])
+            else:
+                names.append(model_name)
+                classifiers.append(model_info["classifier"])
+                hypers.append(model_info["default_params"])
 
-names = []
-classifiers = []
-hypers = []
-
-METRIC_TO_TRACK = params["Metric For Threshold Optimization"]
-GRID_SEARCH_ENABLING = params["apply_grid_search"]["enabled"]
-
-# Iterate over the machine learning models specified in the YAML file
-
-for model_name, is_enabled in params["Machine Learning Models"].items():
-    if is_enabled:
-        model_info = hyperparameters_models_grid.get(model_name)
-        if GRID_SEARCH_ENABLING:
-            names.append(model_name)
-            classifiers.append(model_info["classifier"])
-            hypers.append(model_info["params"])
-        else:
-            names.append(model_name)
-            classifiers.append(model_info["classifier"])
-            hypers.append(model_info["default_params"])
-            
 def train_k_fold(X_train, y_train):
+    log_file = './Materials/error_log.log'
+    logging.basicConfig(filename=log_file, level=logging.ERROR, 
+                    format='%(asctime)s:%(levelname)s:%(message)s')
     k_folds = NUMBER_OF_FOLDS
     scores_storage = {}
     params_dict = {}
@@ -170,6 +174,7 @@ def train_k_fold(X_train, y_train):
     skf = StratifiedKFold(n_splits=k_folds, shuffle = True, random_state=10)
     for cls, hp, nm in zip(classifiers, hypers, names):
         print("-------------------- \n", f"{nm} is starting \n", "--------------------")
+        logging.info(f"{nm} is starting")
         # find optimal parameters
         pipeline = pipelines.MLPipeline(X_train, y_train, cls, hp)
         pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
@@ -178,7 +183,7 @@ def train_k_fold(X_train, y_train):
         ppln = pipeline.build_pipeline()
         params = pipeline.get_best_parameters()
         params_dict.update({nm:params})
-
+        logging.info(f"{nm} training completed with parameters: {params}")
         hpers = params # best parameters based on cv grid search
 
         scores_storage_algo = {}
@@ -188,12 +193,16 @@ def train_k_fold(X_train, y_train):
             ytrain = y_train.iloc[train_index]
             xval = X_train.iloc[test_index,:]
             yval = y_train.iloc[test_index]
-
-            pipeline = pipelines.MLPipeline(xtrain, ytrain, cls, hpers)
-            pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
-            pipeline.execute_preprocessing()
-            pipeline.train_model()
-            ppln = pipeline.build_pipeline()
+            try:
+                pipeline = pipelines.MLPipeline(xtrain, ytrain, cls, hpers)
+                pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
+                pipeline.execute_preprocessing()
+                pipeline.train_model()
+                ppln = pipeline.build_pipeline()
+            except Exception as e:
+                error_message = f"An error occurred: {e}"
+                logging.error(error_message)
+                logging.error(traceback.format_exc())
             
             me = behave_metrics.ModelEvaluator(ppln,xval)
             scores = me.evaluate()["y_test"]
@@ -268,6 +277,10 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     roc = behave_metrics.ROCCurveEvaluator(pipeline_dict_inf,X_test=X_test, y_true=y_test)
     roc.evaluate_models()
     roc.plot_roc_curves(save_path=r"./Materials")
+    try:
+        roc.plot_pr_curves(save_path=r"./Materials")
+    except:
+        pass
 
     save_path_for_models = os.path.join("./Materials", "Models")
     os.makedirs(save_path_for_models, exist_ok=True)

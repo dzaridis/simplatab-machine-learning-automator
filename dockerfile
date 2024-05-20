@@ -17,4 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Define volumes
 VOLUME ["/input_data", "/Materials"]
 # Define the entrypoint to run the script
-ENTRYPOINT ["python", "app.py"]
+# Expose the port the app runs on
+EXPOSE 5000
+
+ENTRYPOINT ["python"]
+CMD ["app.py"]

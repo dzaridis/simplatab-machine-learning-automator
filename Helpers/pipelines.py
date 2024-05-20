@@ -113,7 +113,7 @@ class ModelTrainer:
         if hp_type=="Exhaustive":
             self.grid_search = GridSearchCV(self.classifier(), param_grid, cv=cv, scoring=scoring, n_jobs=-1)
         else:
-            self.grid_search = RandomizedSearchCV(self.classifier(), param_grid, n_iter=25, cv=cv, scoring=scoring, verbose=1, random_state=42, n_jobs=-1)
+            self.grid_search = RandomizedSearchCV(self.classifier(), param_grid, n_iter=40, cv=cv, scoring=scoring, verbose=1, random_state=42, n_jobs=-1, error_score=0)
         self.grid_search.fit(self.X_train, self.y_train)
         if self.grid_search.best_estimator_ is None:
             raise ValueError("Grid search did not yield a best estimator.")
