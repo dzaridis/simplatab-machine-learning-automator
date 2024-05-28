@@ -103,3 +103,25 @@ class ShapAnalysis:
             plot_path = model_name + "_ShapFeatures.png"
         plt.savefig(plot_path, dpi=400, bbox_inches='tight')
         plt.close()
+        try:
+                # Plot waterfall plot
+            shap.plots.waterfall(values_to_plot, max_display=10, show=False)
+            
+            if path:
+                waterfall_path = os.path.join(path, model_name + "_ShapWaterfall.png")
+            else:
+                waterfall_path = model_name + "_ShapWaterfall.png"
+            plt.savefig(waterfall_path, dpi=400, bbox_inches='tight')
+            plt.close()
+
+            # Plot bar plot
+            shap.plots.bar(values_to_plot, show=False)
+            
+            if path:
+                bar_path = os.path.join(path, model_name + "_ShapBar.png")
+            else:
+                bar_path = model_name + "_ShapBar.png"
+            plt.savefig(bar_path, dpi=400, bbox_inches='tight')
+            plt.close()
+        except:
+            pass
