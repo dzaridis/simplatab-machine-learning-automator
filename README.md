@@ -55,7 +55,11 @@ For the Docker version, place `Train.csv` and `Test.csv` in an input volume fold
 ## Outputs
 The outputs will be saved in the `Materials` folder (or a specified output volume for Docker version):
 - `ROC_CURVES.PNG`: ROC curves for each algorithm on the test set.
-- `ShapFeatures` folder: PNG images showing SHAP values for each algorithm.
+- `Precision-Recall curves.png`:Precision-Recall curves for each algorithm on the test set.
+- `ShapFeatures` folder: A ShapFeatures folder will be created, Inside model subfolders will be created which contain 3 kind of plots  
+    - `Summary Plot`: Top 10 features and their impact on model output
+    - `BeeSwarm Plot`: Similar to summary plot but also takes into account the sum of the shap values for all features not just the top 10
+    - `Heatmap Plot`: Contains information regarding the impact of each feature (top 10 and the rest as a sum) and how they impact the probabilities of the model's outcome
 - Excel files:
   - Metrics for the algorithm on the internal K-Fold.
   - Metrics for the algorithm on the external set.
