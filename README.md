@@ -29,7 +29,7 @@ This pipeline trains and evaluates various classification models, providing insi
 ## Docker Image
 You can pull Directly the Docker Image as   
 ```bash
-docker push dimzaridis/simplatab-machine-learning-automator:0.1-TestVersion
+docker pull dimzaridis/simplatab-machine-learning-automator:0.6-TestVersion
 ```
 and run the docker image as  
 ```bash
