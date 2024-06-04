@@ -256,21 +256,11 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
         scores_dict = mr.get_scores() # the scores on the fold based on the best hyperparameters
         scores_inf.update({nm:scores_dict})
 
-        # Perform Shap
-        try:
-            sp = shap_module.ShapAnalysis(X_val = X_test, y_val=y_test, pipeline_module = ppln, features=pipeline.selected_features) 
-            shap_values,features = sp.perform_shap(), pipeline.selected_features
-            try:
-                os.mkdir(os.path.join("Materials", "Shap_Features"))
-            except OSError:
-                pass
-            path_shap = os.path.join("Materials", "Shap_Features")
-            sp.plot_shap_values(model_name=nm, path= path_shap)
-        except Exception as e:
-            error_message = f"Error here: {e}\n"
-            with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
-                file.write(error_message)
-            pass
+        shap_module.ShapAnalysis(ppln = ppln,
+                                X_test = X_test, 
+                                y_test=y_test, 
+                                nm=nm)
+
         print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
     MetricsReport.external_summary(scores_inf, file = "test_results", conf_matrix_name="Test")
     # display roc curves

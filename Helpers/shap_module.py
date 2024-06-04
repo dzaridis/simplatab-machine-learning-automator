@@ -1,127 +1,204 @@
 import shap
-import seaborn as sns
 import numpy as np
 import pandas as pd
-import os
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
+import os
+from sklearn.pipeline import Pipeline
+from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
-from xgboost import XGBClassifier
-from sklearn.base import BaseEstimator, is_classifier
-from sklearn.pipeline import Pipeline
+from sklearn.linear_model import SGDClassifier
+import matplotlib.pyplot as plt
 
-
-def save_shap_values(shap_values:np.array, features:list, path:str, model_name:str):
-    shap_values_class_0 = shap_values[0]
-    shap_values_class_1 = shap_values[1]
+class ShapValues:
+    """Calculate SHAP values for a given model and dataset
+    the input model should be a classifier model from sklearn or xgboost, and the input dataset should be a pandas DataFrame
+    usage Example:
+    ```python
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import train_test_split
     
-    # Convert to DataFrame
-    shap_df_class_0 = pd.DataFrame(shap_values_class_0, columns=features)
-    shap_df_class_1 = pd.DataFrame(shap_values_class_1, columns=features)
-
-    # Melt the DataFrames
-    shap_melted_df_class_0 = shap_df_class_0.melt(value_vars=features)
-    shap_melted_df_class_1 = shap_df_class_1.melt(value_vars=features)
-
-    # Initialize a matplotlib figure with subplots
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-
-    # Plot for class 0
-    sns.barplot(x=shap_melted_df_class_0['value'], y=shap_melted_df_class_0['variable'], ax=axes[0])
-    axes[0].set_title('Class Non-user SHAP values')
+    X_train, y_train, X_test, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
-    # Plot for class 1
-    sns.barplot(x=shap_melted_df_class_1['value'], y=shap_melted_df_class_1['variable'], ax=axes[1])
-    axes[1].set_title('Class User SHAP values')
+    ppln = Pipeline([
+        ("preprocessor", StandardScaler()),
+        ("model", LogisticRegression())
+        ])
+    ppln.fit(X_train, y_train)
 
-    # Adjust the layout
-    plt.tight_layout()
+    ShapObject = ShapValues(ppln)
+    ShapObject.calculate_shap_values(X_test, y_test)
+    ```
+    """
+    def __init__(self, ppln:Pipeline) -> None:
+        """ Initialize the ShapValues object with a given pipeline
 
-    # Save the plot
-    plt.savefig(os.path.join(path,model_name+"_shap_class.png"), dpi=400, bbox_inches='tight')
-    plt.clf()
-
-class ShapAnalysis:
-    def __init__(self, X_val: np.array, y_val:np.array, pipeline_module: Pipeline, features: list) -> None:
-        self.xvl = X_val
-        self.yvl = y_val
-        self.explainer = None
-        self.model = pipeline_module["model"]
-        self.features = features
-        self.X_test_transformed = None
-        self.ppln = pipeline_module
+        Args:
+            ppln (Pipeline): A pipeline object that contains the model and the preprocessing steps
+        """
+        self.ppln = ppln
+        self.model = ppln["model"]
+        if isinstance(self.model, (XGBClassifier, RandomForestClassifier, DecisionTreeClassifier, AdaBoostClassifier, SGDClassifier)):
+            self.MODEL_TYPE = 1
+        else:
+            self.MODEL_TYPE = 0
     
-    def perform_shap(self):
-        
-        # Filter positive and control samples
-        positive_indices = self.yvl[self.yvl == 1].index
-        control_indices = self.yvl[self.yvl == 0].index
+    def __data_transform(self, x_val:pd.DataFrame, y_val:pd.Series) -> tuple:
+        """_summary_
 
-        # Ensure there are at least 10 samples, or use the maximum available
-        num_samples = min(len(positive_indices), len(control_indices), 7)
+        Args:
+            x_val (pd.DataFrame): features DataFrame
+            y_val (pd.Series): target Series
 
-        # Sample 10 instances from each class
-        sampled_positive = self.xvl.loc[positive_indices].sample(n=num_samples, random_state=42)
-        sampled_control = self.xvl.loc[control_indices].sample(n=num_samples, random_state=42)
+        Returns:
+            tuple: (transformed_data, columns_names) tuple of transformed data and column names
+        """
+        data_test = pd.concat([x_val, y_val], axis = 1)
+        transformed_1 = self.ppln.named_steps["FeatureWizFs"].transform(data_test)
+        transformed_2 = self.ppln.named_steps["preprocessor"].transform(transformed_1)
+        return transformed_2, transformed_1.columns.tolist()
 
-    # Combine the samples
+    def __sample_data(self, x_val: pd.DataFrame, y_val: pd.Series) -> tuple:
+        """This function samples the data to get equal number of samples from each class.
+        It samples 10 samples from each class in order to get a balanced dataset for SHAP values calculation
+        and also mitigate the slow kernel explanations for large datasets.
+
+        Args:
+            x_val (pd.DataFrame): (samples, features) DataFrame of input data
+            y_val (pd.Series): (samples,) Series of target data (0 or 1)
+
+        Returns:
+            tuple: (sampled_x, sampled_y) tuple of sampled data
+        """
+        positive_indices = y_val[y_val == 1].index
+        control_indices = y_val[y_val == 0].index
+        num_samples = min(len(positive_indices), len(control_indices), 10)
+
+        # Sample instances from each class
+        sampled_positive = x_val.loc[positive_indices].sample(n=num_samples, random_state=42)
+        sampled_control = x_val.loc[control_indices].sample(n=num_samples, random_state=42)
+
+        # Combine the samples
         sampled_data = pd.concat([sampled_positive, sampled_control])
-        for item in self.ppln.named_steps.keys():
-            if item != "model":
-                self.X_test_transformed = self.ppln.named_steps[item].transform(sampled_data)
+        sampled_y = y_val.loc[sampled_data.index]
 
-        # Step 2: Apply the preprocessor transformation
-
-        if isinstance(self.model, (XGBClassifier, RandomForestClassifier, DecisionTreeClassifier, AdaBoostClassifier)):
-            self.explainer = shap.TreeExplainer(self.model)
-        else:
-            self.explainer = shap.KernelExplainer(self.model.predict_proba, self.X_test_transformed)
-        
-        shap_values = self.explainer.shap_values(self.X_test_transformed)
-        print(f"SHAP values shape: {np.array(shap_values).shape}")
-        return shap_values
+        return sampled_data, sampled_y
     
-    def plot_shap_values(self, model_name: str, path: str):
-        plt.clf()
-        shap_values = self.explainer.shap_values(self.X_test_transformed)
-        print(f"SHAP values for plotting shape: {np.array(shap_values).shape}")
-        
-        if isinstance(shap_values, list):
-            # Assuming binary classification and interested in SHAP values for class 1
-            values_to_plot = shap_values[1]
-        else:
-            # For regression or binary classification models where a single array is returned
-            values_to_plot = shap_values
-        
-        shap.summary_plot(values_to_plot, self.X_test_transformed, feature_names=self.features,max_display=10, show=False, plot_type="dot")
-        
-        if path:
-            plot_path = os.path.join(path, model_name + "_ShapFeatures.png")
-        else:
-            plot_path = model_name + "_ShapFeatures.png"
-        plt.savefig(plot_path, dpi=400, bbox_inches='tight')
-        plt.close()
-        try:
-                # Plot waterfall plot
-            shap.plots.waterfall(values_to_plot, max_display=10, show=False)
-            
-            if path:
-                waterfall_path = os.path.join(path, model_name + "_ShapWaterfall.png")
-            else:
-                waterfall_path = model_name + "_ShapWaterfall.png"
-            plt.savefig(waterfall_path, dpi=400, bbox_inches='tight')
-            plt.close()
+    @staticmethod
+    def __get_shap_values_for_class(shap_values):
+        """_summary_
 
-            # Plot bar plot
-            shap.plots.bar(values_to_plot, show=False)
-            
-            if path:
-                bar_path = os.path.join(path, model_name + "_ShapBar.png")
-            else:
-                bar_path = model_name + "_ShapBar.png"
-            plt.savefig(bar_path, dpi=400, bbox_inches='tight')
-            plt.close()
-        except:
+        Args:
+            shap_values (np.ndarray): (samples, features) array of SHAP values
+
+        Returns:
+            np.ndarray: (samples, features) array of SHAP values for the positive class
+        """
+        if len(shap_values.shape) == 3:
+            return shap_values[:, :, 1]
+        else:
+            return shap_values
+
+    def calculate_shap_values(self, x_val: pd.DataFrame, y_val: pd.Series) -> np.array:
+        """_summary_
+
+        Args:
+            x_val (pd.DataFrame): (samples, features) DataFrame of input data
+            y_val (pd.Series): (samples,) Series of target data
+
+        Returns:
+            np.ndarray: (samples, features) array of SHAP values
+        """
+        if self.MODEL_TYPE == 1:
+            transformed_data, columns_names = self.__data_transform(x_val, y_val)
+            explainer = shap.Explainer(self.model, transformed_data)
+            shap_values = explainer(transformed_data)
+            shap_values.feature_names = columns_names
+        else:
+            sampled_x, sampled_y = self.__sample_data(x_val, y_val)
+            transformed_data, columns_names = self.__data_transform(sampled_x, sampled_y)
+            explainer = shap.KernelExplainer(self.model.predict_proba, transformed_data)
+            shap_values = explainer(transformed_data)
+            shap_values.feature_names = columns_names
+        
+        shap_values = self.__get_shap_values_for_class(shap_values)
+
+        return shap_values
+
+class ShapPlots:
+
+    def __init__(self, 
+                shap_values:np.ndarray) -> None:
+        
+        self.shap_values = shap_values
+
+    def summary(self, 
+                save: bool = False, 
+                filename: str = "summary_plot.png"):
+        
+        fig = shap.summary_plot(self.shap_values, max_display=10, show=False, plot_type="dot")
+        if save:
+            plt.savefig(filename, dpi=400)
+        else:
+            plt.show()
+    
+    def bar(self, 
+            save: bool = False, 
+            filename: str = "bar_plot.png"):
+        
+        fig = shap.summary_plot(self.shap_values, max_display=10, show=False, plot_type="bar")
+        if save:
+            plt.savefig(filename, dpi=400)
+        else:
+            plt.show()
+    
+    def heatmap(self, 
+                save: bool = False, 
+                filename: str = "heatmap_plot.png"):
+        
+        fig = shap.plots.heatmap(self.shap_values, max_display=10, show=False)
+        if save:
+            plt.savefig(filename, dpi=400)
+        else:
+            plt.show()
+    
+    def beeswarm(self, 
+                save: bool = False,
+                filename: str = "beeswarm_plot.png"):
+        
+        fig = shap.plots.beeswarm(self.shap_values, show=False) 
+        if save:
+            plt.savefig(filename, dpi=400)
+        else:
+            plt.show()
+    
+def ShapAnalysis(ppln:Pipeline, 
+                X_test:pd.DataFrame, 
+                y_test:pd.Series, 
+                nm:str):
+    try:
+        sv = ShapValues(ppln)
+        shap_values = sv.calculate_shap_values(X_test, y_test)
+        try:
+            os.mkdir(os.path.join("./Materials", "Shap_Features"))
+        except OSError:
             pass
+        shap_path = os.path.join("./Materials", "Shap_Features")
+        try:
+            os.mkdir(os.path.join(shap_path, f"{nm}"))
+        except OSError:
+            pass
+        shap_md_path = os.path.join(shap_path, f"{nm}")
+        
+        plts = ShapPlots(shap_values = shap_values)
+        plts.summary(save=True, filename=os.path.join(shap_md_path,f"summary_plot_{nm}.png"))
+        plts.bar(save=True, filename=os.path.join(shap_md_path,f"bar_plot_{nm}.png"))
+        plts.beeswarm(save=True, filename=os.path.join(shap_md_path,f"beeswarm_plot_{nm}.png"))
+        plts.heatmap(save=True, filename=os.path.join(shap_md_path,f"heatmap_plot_{nm}.png"))
+    except Exception as e:
+        error_message = f"Error here: {e}\n"
+        with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
+            file.write(error_message)
+        pass
