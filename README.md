@@ -54,7 +54,7 @@ For the Docker version, place `Train.csv` and `Test.csv` in an input volume fold
 
 ## Outputs
 The outputs will be saved in the `Materials` folder (or a specified output volume for Docker version):
-- `ROC_CURVES.PNG`: ROC curves for each algorithm on the test set.
+- `ROC_CURVES.png`: ROC curves for each algorithm on the test set.
 - `Precision-Recall curves.png`:Precision-Recall curves for each algorithm on the test set.
 - `ShapFeatures` folder: A ShapFeatures folder will be created, Inside model subfolders will be created which contain 3 kind of plots  
     - `Summary Plot`: Top 10 features and their impact on model output
@@ -64,6 +64,7 @@ The outputs will be saved in the `Materials` folder (or a specified output volum
   - Metrics for the algorithm on the internal K-Fold.
   - Metrics for the algorithm on the external set.
 - `Models` folder: Pickle files containing the models evaluated on the external data. These pipelines can be used directly without manual feature selection or preprocessing.
+- `Confusion_Matrices` folder: The confusion matrices for each model on the internal k-fold (mena values of tp, fp, tn , fn) and external set are provided as images
 
 ## Main Advantages
 - Automated feature selection & preprocessing.
