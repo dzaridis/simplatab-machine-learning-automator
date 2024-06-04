@@ -1,0 +1,20 @@
+
+number_of_k_folds: 3
+
+apply_grid_search: 
+  enabled: false
+  type: 
+    Randomized: true # if randomized is False then Exahustive is going to be created
+
+Correlation Limit: 0.75
+
+Metric For Threshold Optimization: "Balanced Accuracy" # select on out of "Specificity", "Sensitivity", "AUC", "F-score", "Accuracy", "Balanced Accuracy"
+
+Machine Learning Models: 
+  Logistic Regression: true
+  Support Vector Machines: false
+  Random Forest: true
+  Stochastic Gradient Descent: false
+  Multi-Layer Neural Network: true
+  Decision Trees: false
+  XGBoost: true
