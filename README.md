@@ -73,7 +73,10 @@ The outputs will be saved in the `Materials` folder (or a specified output volum
   - Accuracy
   - Sensitivity
   - Specificity
+  - Balanced Accuracy
 - ROC Curves and SHAP Analysis on the external set.
+
+Shap Analysis consists of 3 plots (summary plot, beeswarm, heatmap)
 
 ## Key Concepts
 - **Hyperparameters**: Set before training to control the behavior of the training algorithm.
