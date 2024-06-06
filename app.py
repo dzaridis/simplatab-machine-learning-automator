@@ -89,7 +89,7 @@ def main(input_folder, output_folder):
     # Run the pipeline
     print("------------- \n", " Training on K-Fold cross validation with Train.csv file and parameters set on machine_learning_parameters.yaml file  \n", "-------------")
 
-    params_dict, scores_storage, thresholds = train_k_fold(X_train, y_train)
+    params_dict, scores_storage, thresholds, _ = train_k_fold(X_train, y_train)
     print("------------- \n", " Training on K-Fold cross validation with Train.csv file and parameters set on machine_learning_parameters.yaml file completed successfully \n", "-------------")
 
     print("------------- \n", " Evaluating algorithms on Test.csv \n", "-------------")

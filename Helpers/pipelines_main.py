@@ -4,7 +4,7 @@ from sklearn.linear_model import LogisticRegression
 import warnings
 #from Helpers.radiomics_setup import RadiomicsClean, MultiParamProcessor
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import SGDClassifier
 from sklearn.tree import DecisionTreeClassifier
@@ -170,6 +170,7 @@ def train_k_fold(X_train, y_train):
     scores_storage = {}
     params_dict = {}
     thresholds = {}
+    base_models_folds = {}
     # to add the automated k-fold selector based on the number of y
     skf = StratifiedKFold(n_splits=k_folds, shuffle = True, random_state=10)
     for cls, hp, nm in zip(classifiers, hypers, names):
@@ -186,6 +187,7 @@ def train_k_fold(X_train, y_train):
         logging.info(f"{nm} training completed with parameters: {params}")
         hpers = params # best parameters based on cv grid search
 
+        base_models = {}
         scores_storage_algo = {}
         thresholds_algo = {}
         for i, (train_index, test_index) in enumerate(skf.split(X_train, y_train)):
@@ -199,6 +201,7 @@ def train_k_fold(X_train, y_train):
                 pipeline.execute_preprocessing()
                 pipeline.train_model()
                 ppln = pipeline.build_pipeline()
+                base_models.update({f"fold_{i+1}":ppln})
             except Exception as e:
                 error_message = f"An error occurred: {e}"
                 logging.error(error_message)
@@ -219,9 +222,42 @@ def train_k_fold(X_train, y_train):
             scores_storage_algo.update({f"fold_{i+1}":scores_dict})
         scores_storage.update({nm:scores_storage_algo})
         thresholds.update({nm:thresholds_algo})
+        base_models_folds.update({nm:base_models})
         print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
     MetricsReport.summary_results_excel(scores_storage, file = f"{NUMBER_OF_FOLDS}_fold_results", conf_matrix_name=f"Internal_{NUMBER_OF_FOLDS}_fold")
-    return params_dict, scores_storage, thresholds
+    return params_dict, scores_storage, thresholds, base_models_folds
+
+# def train_k_fold_stacking(X_train, y_train, base_models_folds):
+#     k_folds = NUMBER_OF_FOLDS
+#     thresholds_algo = {}
+#     skf = StratifiedKFold(n_splits=k_folds, shuffle = True, random_state=10)
+#     for i, (train_index, test_index) in enumerate(skf.split(X_train, y_train)):
+#         xtrain = X_train.iloc[train_index,:]
+#         ytrain = y_train.iloc[train_index]
+#         xval = X_train.iloc[test_index,:]
+#         yval = y_train.iloc[test_index]
+
+#         base_models_fitted = []
+#         for nm, base_models in base_models_folds.items():
+#             base_models_fitted.append((nm,base_models[f"fold_{i+1}"]))
+#         # Train the stacking model
+#         meta_learner = LogisticRegression(random_state=42)
+        
+#         # Create the stacking classifier
+#         stacking_clf = StackingClassifier(
+#             estimators=base_models_fitted,
+#             final_estimator=meta_learner,
+#             passthrough=True,  # Include original features along with predictions for meta-learner
+#             cv='prefit'  # 5-fold cross-validation
+#             )
+        
+#         stacking_clf.fit(xtrain, ytrain)
+        
+
+#         tho = behave_metrics.ThresholdOptimizer(stacking_clf, xval, yval)
+#         thresh = tho.find_optimal_threshold(metric_to_track=METRIC_TO_TRACK)
+#         thresholds_algo.update({f"fold_{i+1}":thresh})
+            
 
 def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     pipeline_dict_inf = {}
