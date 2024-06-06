@@ -26,7 +26,7 @@ This pipeline trains and evaluates various classification models, providing insi
 - **Docker (for Docker version)**
 - **Required Python Libraries**: `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `xgboost`, `shap`, `featurewiz`
 
-## Docker Image
+## Run as Docker Image
 You can pull Directly the Docker Image as   
 ```bash
 docker pull dimzaridis/simplatab-machine-learning-automator:0.6-TestVersion
@@ -35,8 +35,34 @@ and run the docker image as
 ```bash
 sudo docker run -v /absolute_path/to/your/input_data:/input_data  
                 -v /absolute_path/to/your/Empty/Folder/For_the/outcomes/to_be/stored:/Materials  
-                dimzaridis/simplatab-machine-learning-automator:0.1-TestVersion (or latest)
+                dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion (or latest)
 ```
+## Run as Python API
+1. Clone the repository to the desired folder  
+```bash
+git clone https://github.com/dzaridis/SIMPLATAB.git  
+```
+2. Place your Train.csv and Test.csv into a folder  
+
+3. Create a "Materials"folder in the repository workspace  
+
+4. Install the requirements  
+```bash
+pip install -r requirements
+```
+5. Run the python API
+```bash
+python __main__.py 
+```
+
+6. An interactive window to select you folders will be opened. Select input folder and the "Materials" folder you previously created as the output folder  
+```bash
+python __main__.py 
+```
+
+7. Follow the steps in the interactive session to fill in the parameters such as k-fold, grid-search (they are simple just true/false values)
+
+8. Wait for the execution to finalize
 
 ### Requirements for the Data
 1. The input folder must contain a Train.csv and a Test.csv files  

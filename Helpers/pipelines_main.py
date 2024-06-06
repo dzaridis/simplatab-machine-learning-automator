@@ -130,9 +130,9 @@ hyperparameters_models_grid = {
         "default_params": {}
     }
 }
-def read_yaml():
+def read_yaml(input_folder):
     global CORRELATION_LIMIT, NUMBER_OF_FOLDS, HP_TYPE, METRIC_TO_TRACK, GRID_SEARCH_ENABLING, names, classifiers, hypers
-    yaml_file = os.path.join("./input_data", "machine_learning_parameters.yaml")
+    yaml_file = os.path.join(input_folder, "machine_learning_parameters.yaml")
     with open(yaml_file, 'r') as file:
         params = yaml.safe_load(file)
 

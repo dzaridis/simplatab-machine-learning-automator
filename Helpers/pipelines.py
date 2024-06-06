@@ -225,22 +225,8 @@ class ModelEvaluator:
         self.pipeline = pipeline
         self.X_test = X_test
 
-    # def apply_transformations(self, X):
-        
-    #     # put a try/except to check whether a feature selector is applied
-    #     selected_features = self.pipeline.selected_features
-    #     X_transformed = X.loc[:, selected_features]
-    #     # Apply preprocessing
-    #     X_transformed = self.pipeline.preprocessor_pipe.preprocessor.transform(X_transformed)
-    #     return X_transformed
-
     def evaluate(self):
-        # Apply transformations to validation and test sets
-        #self.X_test_transformed = self.apply_transformations(self.X_test)
-
-        # Evaluate on test set
-        #y_test_pred = self.pipeline.predict(self.X_test_transformed)
-        # Add evaluat   ion metrics as needed for test set
+        
         y_test_pred = self.pipeline.predict_proba(self.X_test)
-        # Return evaluation results
+
         return {"y_test":y_test_pred}

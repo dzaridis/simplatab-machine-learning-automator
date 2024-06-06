@@ -74,7 +74,7 @@ def pipeline_status():
 def main(input_folder, output_folder):
     global pipeline_status_message
         # Load parameters from YAML file
-    read_yaml()
+    read_yaml(input_folder)
 
     # Load data
     print("------------- \n", " Loading Data \n", "-------------")

@@ -27,5 +27,5 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator:0.7.2
+          tags: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator:0.7.3-TestVersion
 

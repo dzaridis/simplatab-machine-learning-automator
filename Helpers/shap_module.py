@@ -192,8 +192,14 @@ def ShapAnalysis(ppln:Pipeline,
             pass
         shap_md_path = os.path.join(shap_path, f"{nm}")
         
-        plts = ShapPlots(shap_values = shap_values)
-        plts.summary(save=True, filename=os.path.join(shap_md_path,f"beeswarm_plot_MaxShapValues_{nm}.png"))
+        plts = ShapPlots(shap_values=shap_values)
+        try:
+            plts.summary(save=True, filename=os.path.join(shap_md_path, f"beeswarm_plot_MaxShapValues_{nm}.png"))
+        except IndexError as e:
+            error_message = f"Error here: Beeswarm with Max Values failed. Utilize the other shap figures to identify interpretabilty {e}\n"
+            with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
+                file.write(error_message)
+            pass
         plts.bar(save=True, filename=os.path.join(shap_md_path,f"bar_plot_{nm}.png"))
         plts.beeswarm(save=True, filename=os.path.join(shap_md_path,f"beeswarm_plot_MaxShapValues_{nm}.png"))
         plts.heatmap(save=True, filename=os.path.join(shap_md_path,f"heatmap_plot_{nm}.png"))
