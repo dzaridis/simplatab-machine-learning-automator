@@ -128,51 +128,51 @@ class ShapValues:
         return shap_values
 
 class ShapPlots:
-
-    def __init__(self, 
-                shap_values:np.ndarray) -> None:
-        
+    def __init__(self, shap_values: np.ndarray) -> None:
         self.shap_values = shap_values
 
-    def summary(self, 
-                save: bool = False, 
-                filename: str = "summary_plot.png"):
-        
-        fig = shap.summary_plot(self.shap_values, max_display=10, show=False, plot_type="dot")
+    def summary(self, save: bool = False, filename: str = "summary_plot.png"):
+        plt.clf()
+        shap.plots.beeswarm(self.shap_values, max_display=10, show=False, order=self.shap_values.abs.max(0))
+        plt.title("SHAP Values Beeswarm Plot (Max of SHAP Values)")
         if save:
-            plt.savefig(filename, dpi=400)
+            plt.savefig(filename, dpi=400, bbox_inches='tight')
         else:
             plt.show()
-    
-    def bar(self, 
-            save: bool = False, 
-            filename: str = "bar_plot.png"):
-        
-        fig = shap.summary_plot(self.shap_values, max_display=10, show=False, plot_type="bar")
+        plt.close()
+
+    def bar(self, save: bool = False, filename: str = "bar_plot.png"):
+        plt.clf()
+        #fig, ax = plt.subplots(figsize=(12, 8))  # Create a figure and an axes object
+        shap.plots.bar(self.shap_values, max_display=10, show=False)
+        plt.title("Aggregated feature importance based on mean SHAP values")
+        #plt.subplots_adjust(bottom=0.25)  # Adjust bottom margin to prevent x-axis clipping
         if save:
-            plt.savefig(filename, dpi=400)
+            plt.savefig(filename, dpi=400, bbox_inches="tight")  # Save the figure
         else:
             plt.show()
-    
-    def heatmap(self, 
-                save: bool = False, 
-                filename: str = "heatmap_plot.png"):
-        
-        fig = shap.plots.heatmap(self.shap_values, max_display=10, show=False)
+        plt.close()
+
+    def heatmap(self, save: bool = False, filename: str = "heatmap_plot.png"):
+        plt.clf()
+        shap.plots.heatmap(self.shap_values, max_display=10, show=False)
+        plt.title("Overall Feature Impact on Model Outcome")
         if save:
-            plt.savefig(filename, dpi=400)
+            plt.savefig(filename, dpi=400, bbox_inches='tight')
         else:
             plt.show()
-    
-    def beeswarm(self, 
-                save: bool = False,
-                filename: str = "beeswarm_plot.png"):
-        
-        fig = shap.plots.beeswarm(self.shap_values, show=False) 
+        plt.close()
+
+    def beeswarm(self, save: bool = False, filename: str = "beeswarm_plot.png"):
+        plt.clf()
+        shap.plots.beeswarm(self.shap_values, show=False)
+        plt.title("SHAP Values Beeswarm Plot (Mean Density of SHAP Values)")
         if save:
-            plt.savefig(filename, dpi=400)
+            plt.savefig(filename, dpi=400, bbox_inches='tight')
         else:
             plt.show()
+        plt.close()
+        plt.show()
     
 def ShapAnalysis(ppln:Pipeline, 
                 X_test:pd.DataFrame, 
@@ -193,9 +193,9 @@ def ShapAnalysis(ppln:Pipeline,
         shap_md_path = os.path.join(shap_path, f"{nm}")
         
         plts = ShapPlots(shap_values = shap_values)
-        plts.summary(save=True, filename=os.path.join(shap_md_path,f"summary_plot_{nm}.png"))
+        plts.summary(save=True, filename=os.path.join(shap_md_path,f"beeswarm_plot_MaxShapValues_{nm}.png"))
         plts.bar(save=True, filename=os.path.join(shap_md_path,f"bar_plot_{nm}.png"))
-        plts.beeswarm(save=True, filename=os.path.join(shap_md_path,f"beeswarm_plot_{nm}.png"))
+        plts.beeswarm(save=True, filename=os.path.join(shap_md_path,f"beeswarm_plot_MaxShapValues_{nm}.png"))
         plts.heatmap(save=True, filename=os.path.join(shap_md_path,f"heatmap_plot_{nm}.png"))
     except Exception as e:
         error_message = f"Error here: {e}\n"
