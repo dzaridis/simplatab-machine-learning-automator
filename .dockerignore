@@ -6,4 +6,6 @@ Feature_Selection.txt
 model_summary.xlsx
 DockerTest
 Notebooks
+__pycache__
+tests
 __main__.py

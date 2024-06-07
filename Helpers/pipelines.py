@@ -16,20 +16,12 @@ import xgboost as xgb
 class FeatureSelection:
     def __init__(self) -> None:
         self.selected_features = None
+        self.feat_sel = None
 
     def featurewiz_selection(self, X_train, y_train, corr_limit=0.9):
         self.feat_sel = featurewiz.FeatureWiz(corr_limit=corr_limit, verbose=0)
         self.feat_sel.fit(X_train, y_train)
         self.selected_features = self.feat_sel.transform(X_train).columns
-
-    def get_features(self):
-        return self.selected_features, self.feat_sel
-
-    def correlation_filter(self, X_train, y_train, threshold=0.8):
-        corr_matrix = X_train.corr().abs()
-        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-        to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
-        self.selected_features = [feature for feature in X_train.columns if feature not in to_drop]
 
     def rfe_selection(self, X_train, y_train, n_features_to_select=5):
         model = LogisticRegression()
@@ -53,11 +45,11 @@ class FeatureSelection:
         self.feat_sel.fit(X_train, y_train)
         importances = self.feat_sel.feature_importances_
         self.selected_features = X_train.columns[importances > threshold]
-
-    def mutual_info_selection(self, X_train, y_train, threshold=0.01):
-        mi = mutual_info_classif(X_train, y_train)
-        self.selected_features = X_train.columns[mi > threshold]
     
+    
+    def get_features(self):
+        return self.selected_features, self.feat_sel
+
 class DataPreprocessor:
     def __init__(self, X_train):
         self.X_train = X_train

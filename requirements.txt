@@ -11,4 +11,4 @@ matplotlib==3.7.3
 matplotlib-inline==0.1.6
 xgboost==1.7.6
 featurewiz==0.3.2
-flask
+flask==3.0.3

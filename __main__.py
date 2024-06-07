@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import yaml
 from Helpers.pipelines_main import train_k_fold, external_test, read_yaml
+from Helpers.data_checks import DataChecker
 from tkinter import Tk, filedialog
 
 def get_user_input():
@@ -54,8 +55,17 @@ def main(input_folder, output_folder):
 
     # Load data
     print("------------- \n", "Loading Data \n", "-------------")
-    train = pd.read_csv(os.path.join(input_folder, "Train.csv"), index_col="patient_id")
-    test = pd.read_csv(os.path.join(input_folder, "Test.csv"), index_col="patient_id")
+    data_checker = DataChecker(input_folder)
+
+# Process the data
+    try:
+        train, test = data_checker.process_data()
+        print("Train and Test data processed successfully.")
+    except FileNotFoundError as e:
+        print(e)
+    except ValueError as e:
+        print(e)
+
     X_train = train.drop('Target', axis=1)
     y_train = train['Target']
     X_test = test.drop('Target', axis=1)
