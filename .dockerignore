@@ -9,3 +9,5 @@ Notebooks
 __pycache__
 tests
 __main__.py
+.vscode
+.github

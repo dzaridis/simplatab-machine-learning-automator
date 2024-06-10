@@ -6,6 +6,7 @@ __pycache__/
 radiomics_setup.py
 # C extensions
 *.so
+.vscode
 
 # Folders
 Feature Selection.txt

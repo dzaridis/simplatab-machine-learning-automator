@@ -2,13 +2,23 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Hyperparameter Selection</title>
+    <title>Welcome to Simplatab</title>
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
 </head>
 <body>
 <div class="container">
-    <h1>Hyperparameter Selection</h1>
+    <h1>Welcome to Simplatab</h1>
     <form action="/submit" method="post">
+        <h2>Data Bias Detection</h2>
+        <div class="form-group">
+            <label for="facet">Select Facet:</label>
+            <select class="form-control" id="facet" name="facet" required>
+                {% for column in columns %}
+                <option value="{{ column }}">{{ column }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <h2>Hyperparameters selection</h2>
         <div class="form-group">
             <label for="number_of_k_folds">Number of K-Folds:</label>
             <input type="number" class="form-control" id="number_of_k_folds" name="number_of_k_folds" required>
@@ -42,7 +52,7 @@
                 <option value="Balanced Accuracy">Balanced Accuracy</option>
             </select>
         </div>
-        <h3>Machine Learning Models</h3>
+        <h4>Machine Learning Models</h4>
         <div class="form-group">
             <label for="logistic_regression">Logistic Regression:</label>
             <select class="form-control" id="logistic_regression" name="logistic_regression">

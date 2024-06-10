@@ -4,6 +4,7 @@ import os
 import yaml
 from Helpers.pipelines_main import train_k_fold, external_test, read_yaml
 from Helpers.data_checks import DataChecker
+from Helpers import DBDM
 import warnings
 warnings.simplefilter(action='ignore', category=Warning)
 
@@ -11,18 +12,35 @@ app = Flask(__name__)
 # Global variable to track pipeline status
 pipeline_status_message = "Not started"
 
+
+def get_train_columns(input_folder):
+    train_file_path = os.path.join(input_folder, "Train.csv")
+    df = pd.read_csv(train_file_path)
+    return df.columns.tolist()
+
+
 @app.route('/')
 def index():
-    return render_template('index.html')
+    input_folder = './input_data'  # specify the input folder path
+    columns = get_train_columns(input_folder)
+    return render_template('index.html', columns=columns)
+
 
 @app.route('/pipeline_status')
 def pipeline_status_route():
     # Simple status page to inform user that the pipeline is running
     return render_template('status.html')
 
+
 @app.route('/submit', methods=['POST'])
 def submit():
-    # Get form data
+    # Retrieve the selected facet from the form
+    selected_facet = request.form.get('facet')
+
+    input_folder = './input_data'
+    output_folder = './Materials'
+    
+    # Update params with the rest of the form data
     params = {
         "number_of_k_folds": int(request.form["number_of_k_folds"]),
         "apply_grid_search": {
@@ -46,23 +64,24 @@ def submit():
     }
 
     # Save the parameters to a YAML file
-    yaml_path = os.path.join("./input_data", "machine_learning_parameters.yaml")
+    yaml_path = os.path.join(input_folder, "machine_learning_parameters.yaml")
     with open(yaml_path, 'w') as file:
         yaml.dump(params, file)
 
     # Redirect to run pipeline
-    return redirect(url_for('run_pipeline'))
+    return redirect(url_for('run_pipeline', selected_facet=selected_facet))
 
 @app.route('/run_pipeline')
 def run_pipeline():
     global pipeline_status_message
     input_folder = "./input_data"
     output_folder = "./Materials"
+    selected_facet = request.args.get('selected_facet')
     try:
         import threading
         pipeline_status_message = "Running"
         # Run the main function asynchronously
-        threading.Thread(target=main, args=(input_folder, output_folder)).start()
+        threading.Thread(target=main, args=(input_folder, output_folder, selected_facet)).start()
         return redirect(url_for('pipeline_status'))
     except Exception as e:
         pipeline_status_message = f"Error: {e}"
@@ -72,17 +91,33 @@ def run_pipeline():
 def pipeline_status():
     return render_template('status.html', status=pipeline_status_message)
 
-
-def main(input_folder, output_folder):
+def main(input_folder, output_folder, selected_facet):
     global pipeline_status_message
-        # Load parameters from YAML file
+    # Load parameters from YAML file
     read_yaml(input_folder)
 
+    DBDM.bias_config(
+        file_path=os.path.join(input_folder, "Train.csv"),
+        subgroup_analysis=0,  # default is 0
+        facet=selected_facet,
+        outcome='Target',
+        subgroup_col='',  # default is ''
+        label_value=1,  # default is 1
+    )
+
+    DBDM.bias_config(
+        file_path=os.path.join(input_folder, "Test.csv"), 
+        subgroup_analysis=0, # default is 0
+        facet=selected_facet,
+        outcome='Target',
+        subgroup_col='',  # default is ''
+        label_value=1,  # default is 1
+    )
     # Load data
     print("------------- \n", " Loading Data \n", "-------------")
     data_checker = DataChecker(input_folder)
 
-# Process the data
+    # Process the data
     try:
         train, test = data_checker.process_data()
         print("Train and Test data processed successfully.")
@@ -107,11 +142,6 @@ def main(input_folder, output_folder):
 
     pipeline_status_message = "Completed"
 
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
-
-# if __name__ == "__main__":
-#     input_folder = "./input_data"
-#     output_folder = "./Materials"
-
-#     main(input_folder, output_folder)
