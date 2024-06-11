@@ -18,23 +18,52 @@ class DataChecker:
         
         return train, test
 
-    def check_target_column(self, df, target_col="Target"):
+    @staticmethod
+    def check_target_column(df, target_col="Target"):
         if target_col not in df.columns:
             raise ValueError(f"The target column '{target_col}' is not present in the dataframe.")
         
         if not df[target_col].isin([0, 1]).all():
             raise ValueError(f"The target column '{target_col}' does not contain binary values 0 and 1.")
 
-    def set_index_column(self, df, index_col="ID"):
-        if index_col not in df.columns and "patient_id" not in df.columns:
-            raise ValueError(f"The index column '{index_col}' is not present in the dataframe.")
-        try:
+    @staticmethod
+    def set_index_column(df, index_col="ID"):
+        
+        if index_col in df.columns.to_list():
             df.set_index(index_col, inplace=True)
-        except KeyError:
+            return df
+        elif "patient_id" in df.columns.to_list():
             df.set_index("patient_id", inplace=True)
-
-    def remove_nan_rows(self, df):
+            return df
+        else:
+            raise ValueError(f"Neither '{index_col}' nor 'patient_id' is present in the dataframe.")
+        
+        
+    @staticmethod
+    def remove_nan_rows(df):
         df.dropna(inplace=True)
+        return df
+    
+    @staticmethod
+    def check_categorical_features(train, test):
+        categorical_cols = train.select_dtypes(include=['object', 'category']).columns
+        if categorical_cols.empty:
+            # No categorical columns to process
+            return train, test, []
+
+        cols_to_drop = []
+
+        for col in categorical_cols:
+            if col in test.columns:
+                train_unique_values = set(train[col].dropna().unique())
+                test_unique_values = set(test[col].dropna().unique())
+                if train_unique_values != test_unique_values:
+                    cols_to_drop.append(col)
+
+        train.drop(columns=cols_to_drop, inplace=True)
+        test.drop(columns=cols_to_drop, inplace=True)
+
+        return train, test, cols_to_drop
 
     def process_data(self):
         train, test = self.load_data()
@@ -43,11 +72,12 @@ class DataChecker:
         self.check_target_column(train)
 
         # Set index column
-        self.set_index_column(train)
-        self.set_index_column(test)
+        train = self.set_index_column(train)
+        test= self.set_index_column(test)
 
         # Remove rows with NaN values
-        self.remove_nan_rows(train)
-        self.remove_nan_rows(test)
+        train = self.remove_nan_rows(train)
+        test = self.remove_nan_rows(test)
+        train, test, cols_to_drop = self.check_categorical_features(train, test)
 
         return train, test

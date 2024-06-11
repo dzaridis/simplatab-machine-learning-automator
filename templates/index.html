@@ -11,7 +11,14 @@
     <form action="/submit" method="post">
         <h2>Data Bias Detection</h2>
         <div class="form-group">
-            <label for="facet">Select Facet:</label>
+            <label for="bias_assess">Do you want to perform Bias Detection on the Train and Testing Data?:</label>
+            <select class="form-control" id="bias_assess" name="bias_assess">
+                <option value="true">True</option>
+                <option value="false">False</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="facet">Select Column to Check Bias in respect to the Target Class:</label>
             <select class="form-control" id="facet" name="facet" required>
                 {% for column in columns %}
                 <option value="{{ column }}">{{ column }}</option>
@@ -52,7 +59,7 @@
                 <option value="Balanced Accuracy">Balanced Accuracy</option>
             </select>
         </div>
-        <h4>Machine Learning Models</h4>
+        <h2>Machine Learning Models</h2>
         <div class="form-group">
             <label for="logistic_regression">Logistic Regression:</label>
             <select class="form-control" id="logistic_regression" name="logistic_regression">

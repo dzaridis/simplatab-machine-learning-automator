@@ -4,10 +4,12 @@ import yaml
 from Helpers.pipelines_main import train_k_fold, external_test, read_yaml
 from Helpers.data_checks import DataChecker
 from tkinter import Tk, filedialog
+from Helpers import DBDM
 
 def get_user_input():
     params = {}
-
+    params["BiasAssessment"] = input("Enable bias assessment (true/false): ").lower() == 'true'
+    params["Feature"] = str(input("Enter feature from your train and test sets columns for bias assessment: "))
     params["number_of_k_folds"] = int(input("Enter number of k-folds: "))
 
     params["apply_grid_search"] = {}
@@ -50,8 +52,39 @@ def select_folder(prompt):
     root.destroy()
     return folder_selected
 
-def main(input_folder, output_folder):
+
+def main(input_folder, output_folder, params):
     read_yaml(input_folder)
+
+    # Perform Bias Assessment
+    if params["BiasAssessment"]:
+        print("------------- \n", " Bias Detection Started \n", "-------------")
+        try:
+            print("------------- \n", " Bias Detection Started for Train.csv \n", "-------------")
+            DBDM.bias_config(
+                file_path=os.path.join(input_folder, "Train.csv"),
+                subgroup_analysis=0,  # default is 0
+                facet=params["Feature"],
+                outcome='Target',
+                subgroup_col='',  # default is ''
+                label_value=1,  # default is 1
+            )
+            print("------------- \n", " Bias Detection Finished for Train.csv \n", "-------------")
+        except:
+            pass
+        try:
+            print("------------- \n", " Bias Detection Started for Test.csv \n", "-------------")
+            DBDM.bias_config(
+                file_path=os.path.join(input_folder, "Test.csv"), 
+                subgroup_analysis=0, # default is 0
+                facet=params["Feature"],
+                outcome='Target',
+                subgroup_col='',  # default is ''
+                label_value=1,  # default is 1
+            )
+            print("------------- \n", " Bias Detection Finished for Test.csv \n", "-------------")
+        except:
+            pass
 
     # Load data
     print("------------- \n", "Loading Data \n", "-------------")
@@ -92,4 +125,4 @@ if __name__ == "__main__":
     yaml_path = os.path.join(input_folder, "machine_learning_parameters.yaml")
     save_yaml(params, yaml_path)
 
-    main(input_folder, output_folder)
+    main(input_folder, output_folder, params)
