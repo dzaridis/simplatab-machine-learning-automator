@@ -122,7 +122,7 @@ class ShapValues:
             shap_values.feature_names = columns_names
         else:
             sampled_x, sampled_y = self.__sample_data(x_val, y_val)
-            transformed_2, columns_names = self.__data_transform(self.ppln, x_val, y_val)
+            transformed_2, columns_names = self.__data_transform(self.ppln, sampled_x, sampled_y)
             explainer = shap.KernelExplainer(self.model.predict_proba, transformed_2)
             shap_values = explainer(transformed_2)
             shap_values.feature_names = columns_names
