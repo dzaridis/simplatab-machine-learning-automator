@@ -73,11 +73,13 @@
                 <option value="{{ column }}">{{ column }}</option>
                 {% endfor %}
             </select>
+            <small id="FacetHelp" class="form-text text-muted">Select the column with categorical values that you want to assess for data bias in respect to the positive class.</small>
         </div>
         <h2>Hyperparameters Selection</h2>
         <div class="form-group">
             <label for="number_of_k_folds">Number of K-Folds:</label>
             <input type="number" class="form-control" id="number_of_k_folds" name="number_of_k_folds" required aria-required="true">
+            <small id="kfold" class="form-text text-muted">Select the number of k-fold you wish to perform for the internal validation on the Train.csv file. Typical values 5-10.</small>
         </div>
         <div class="form-group">
             <label for="apply_grid_search">Apply Grid Search:</label>
@@ -85,6 +87,8 @@
                 <option value="true">True</option>
                 <option value="false">False</option>
             </select>
+            <small id="grid" class="form-text text-muted">Select whether to perform grid search meaning that a hyperparameter selection will be made on the models</small>
+            <small id="grid1" class="form-text text-muted">This will increase the accuracy of the models but is more time-consuming</small>
         </div>
         <div class="form-group">
             <label for="randomized">Randomized:</label>
@@ -92,10 +96,14 @@
                 <option value="true">True</option>
                 <option value="false">False</option>
             </select>
+            <small id="randomized" class="form-text text-muted">If you set this true a randomized Hyperparameter tuning will be performed else an exhaustive will be set(much more time-consuming).</small>
+            <small id="randomized1" class="form-text text-muted">Optimal to set as true (radnomized)</small>
+                
         </div>
         <div class="form-group">
             <label for="correlation_limit">Correlation Limit:</label>
             <input type="number" step="0.01" class="form-control" id="correlation_limit" name="correlation_limit" required aria-required="true">
+            <small id="cor" class="form-text text-muted">Correlated features above that value will be excluded. typical values 0.7-0.9. Value range between 0-1.</small>
         </div>
         <div class="form-group">
             <label for="metric_for_threshold_optimization">Metric For Threshold Optimization:</label>
@@ -107,6 +115,10 @@
                 <option value="Accuracy">Accuracy</option>
                 <option value="Balanced Accuracy">Balanced Accuracy</option>
             </select>
+            <small id="metric" class="form-text text-muted">The models will tune the threshold on that metric.</small>
+            <small id="metric1" class="form-text text-muted">For a Balanced performance choose Balanced Accuracy.</small> 
+            <small id="metric2" class="form-text text-muted">For a more conservative approach choose Specificity.</small>
+            <small id="metric3" class="form-text text-muted">If you wish a model to be more sensitive choose Sensitivity.</small>
         </div>
         <div class="models-section" aria-labelledby="modelsTitle">
             <h2 id="modelsTitle">Machine Learning Models</h2>
@@ -142,6 +154,7 @@
                 <input class="form-check-input model-checkbox" type="checkbox" id="xgboost" name="xgboost" value="true">
                 <label class="form-check-label" for="xgboost">XGBoost</label>
             </div>
+            <small id="Models" class="form-text text-muted">Please check the models you wish to train.</small>
         </div>
         <button type="submit" class="btn btn-primary">Submit</button>
     </form>

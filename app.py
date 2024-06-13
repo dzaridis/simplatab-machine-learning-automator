@@ -14,9 +14,17 @@ pipeline_status_message = "Not started"
 
 
 def get_train_columns(input_folder):
-    train_file_path = os.path.join(input_folder, "Test.csv")
+    train_file_path = os.path.join(input_folder, "Train.csv")
     df = pd.read_csv(train_file_path)
-    return df.columns.tolist()
+    
+    # Drop columns containing "ID" or "patient_id" if they exist
+    columns_to_drop = [col for col in df.columns if 'ID' in col or 'patient_id' in col]
+    df = df.drop(columns=columns_to_drop, errors='ignore')
+    
+    # Select only categorical columns
+    categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    
+    return categorical_columns
 
 
 @app.route('/')
