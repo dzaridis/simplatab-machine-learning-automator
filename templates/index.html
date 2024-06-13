@@ -4,31 +4,80 @@
     <meta charset="UTF-8">
     <title>Welcome to Simplatab</title>
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Comic+Neue:400,700&display=swap">
+    <style>
+        body {
+            font-family: 'Comic Neue', cursive;
+            font-size: 1.25em; /* Increased font size */
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .form-check-label {
+            margin-left: 10px;
+        }
+        .models-section {
+            text-align: justify; /* Justify text for machine learning models */
+        }
+        .models-section h2 {
+            text-align: center; /* Center the title */
+        }
+        .high-contrast {
+            background-color: #000;
+            color: #fff;
+            font-size: 2em;
+        }
+        .high-contrast .form-control, 
+        .high-contrast .form-check-label {
+            background-color: #000;
+            color: #fff;
+            font-size: 2em;
+        }
+        .high-contrast .btn-primary {
+            background-color: #fff;
+            color: #000;
+            font-size: 2em;
+        }
+    </style>
+    <script>
+        function toggleHighContrast() {
+            document.body.classList.toggle('high-contrast');
+        }
+
+        function toggleAllModels(checked) {
+            const checkboxes = document.querySelectorAll('.model-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = checked;
+            });
+        }
+    </script>
 </head>
-<body>
-<div class="container">
+<body role="main">
+<div class="container text-center">
+    <button type="button" class="btn btn-secondary mb-3" onclick="toggleHighContrast()">Vision Impairment Mode</button>
     <h1>Welcome to Simplatab</h1>
-    <form action="/submit" method="post">
-        <h2>Data Bias Detection</h2>
+    <img src="{{ url_for('static', filename='images_materials/MLPipeline.png') }}" alt="Machine Learning Pipeline Diagram" class="img-fluid" aria-label="Machine Learning Pipeline Diagram">
+    <form action="/submit" method="post" aria-labelledby="formTitle">
+        <h2 id="formTitle">Data Bias Detection</h2>
         <div class="form-group">
-            <label for="bias_assess">Do you want to perform Bias Detection on the Train and Testing Data?:</label>
-            <select class="form-control" id="bias_assess" name="bias_assess">
+            <label for="bias_assess">Do you want to perform Bias Detection on the Train and Testing Data?</label>
+            <select class="form-control" id="bias_assess" name="bias_assess" aria-describedby="biasHelp">
                 <option value="true">True</option>
                 <option value="false">False</option>
             </select>
+            <small id="biasHelp" class="form-text text-muted">Select whether to perform bias detection on your dataset.</small>
         </div>
         <div class="form-group">
             <label for="facet">Select Column to Check Bias in respect to the Target Class:</label>
-            <select class="form-control" id="facet" name="facet" required>
+            <select class="form-control" id="facet" name="facet" required aria-required="true">
                 {% for column in columns %}
                 <option value="{{ column }}">{{ column }}</option>
                 {% endfor %}
             </select>
         </div>
-        <h2>Hyperparameters selection</h2>
+        <h2>Hyperparameters Selection</h2>
         <div class="form-group">
             <label for="number_of_k_folds">Number of K-Folds:</label>
-            <input type="number" class="form-control" id="number_of_k_folds" name="number_of_k_folds" required>
+            <input type="number" class="form-control" id="number_of_k_folds" name="number_of_k_folds" required aria-required="true">
         </div>
         <div class="form-group">
             <label for="apply_grid_search">Apply Grid Search:</label>
@@ -46,7 +95,7 @@
         </div>
         <div class="form-group">
             <label for="correlation_limit">Correlation Limit:</label>
-            <input type="number" step="0.01" class="form-control" id="correlation_limit" name="correlation_limit" required>
+            <input type="number" step="0.01" class="form-control" id="correlation_limit" name="correlation_limit" required aria-required="true">
         </div>
         <div class="form-group">
             <label for="metric_for_threshold_optimization">Metric For Threshold Optimization:</label>
@@ -59,55 +108,40 @@
                 <option value="Balanced Accuracy">Balanced Accuracy</option>
             </select>
         </div>
-        <h2>Machine Learning Models</h2>
-        <div class="form-group">
-            <label for="logistic_regression">Logistic Regression:</label>
-            <select class="form-control" id="logistic_regression" name="logistic_regression">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="support_vector_machines">Support Vector Machines:</label>
-            <select class="form-control" id="support_vector_machines" name="support_vector_machines">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="random_forest">Random Forest:</label>
-            <select class="form-control" id="random_forest" name="random_forest">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="stochastic_gradient_descent">Stochastic Gradient Descent:</label>
-            <select class="form-control" id="stochastic_gradient_descent" name="stochastic_gradient_descent">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="multi_layer_neural_network">Multi-Layer Neural Network:</label>
-            <select class="form-control" id="multi_layer_neural_network" name="multi_layer_neural_network">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="decision_trees">Decision Trees:</label>
-            <select class="form-control" id="decision_trees" name="decision_trees">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label for="xgboost">XGBoost:</label>
-            <select class="form-control" id="xgboost" name="xgboost">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
+        <div class="models-section" aria-labelledby="modelsTitle">
+            <h2 id="modelsTitle">Machine Learning Models</h2>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="toggle_all" onclick="toggleAllModels(this.checked)">
+                <label class="form-check-label" for="toggle_all">Enable/Disable All</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input model-checkbox" type="checkbox" id="logistic_regression" name="logistic_regression" value="true">
+                <label class="form-check-label" for="logistic_regression">Logistic Regression</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input model-checkbox" type="checkbox" id="support_vector_machines" name="support_vector_machines" value="true">
+                <label class="form-check-label" for="support_vector_machines">Support Vector Machines</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input model-checkbox" type="checkbox" id="random_forest" name="random_forest" value="true">
+                <label class="form-check-label" for="random_forest">Random Forest</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input model-checkbox" type="checkbox" id="stochastic_gradient_descent" name="stochastic_gradient_descent" value="true">
+                <label class="form-check-label" for="stochastic_gradient_descent">Stochastic Gradient Descent</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input model-checkbox" type="checkbox" id="multi_layer_neural_network" name="multi_layer_neural_network" value="true">
+                <label class="form-check-label" for="multi_layer_neural_network">Multi-Layer Neural Network</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input model-checkbox" type="checkbox" id="decision_trees" name="decision_trees" value="true">
+                <label class="form-check-label" for="decision_trees">Decision Trees</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input model-checkbox" type="checkbox" id="xgboost" name="xgboost" value="true">
+                <label class="form-check-label" for="xgboost">XGBoost</label>
+            </div>
         </div>
         <button type="submit" class="btn btn-primary">Submit</button>
     </form>

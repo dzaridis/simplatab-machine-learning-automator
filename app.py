@@ -54,13 +54,13 @@ def submit():
         "Correlation Limit": float(request.form["correlation_limit"]),
         "Metric For Threshold Optimization": request.form["metric_for_threshold_optimization"],
         "Machine Learning Models": {
-            "Logistic Regression": request.form["logistic_regression"].lower() == 'true',
-            "Support Vector Machines": request.form["support_vector_machines"].lower() == 'true',
-            "Random Forest": request.form["random_forest"].lower() == 'true',
-            "Stochastic Gradient Descent": request.form["stochastic_gradient_descent"].lower() == 'true',
-            "Multi-Layer Neural Network": request.form["multi_layer_neural_network"].lower() == 'true',
-            "Decision Trees": request.form["decision_trees"].lower() == 'true',
-            "XGBoost": request.form["xgboost"].lower() == 'true'
+            "Logistic Regression": request.form.get("logistic_regression") == 'true',
+            "Support Vector Machines": request.form.get("support_vector_machines") == 'true',
+            "Random Forest": request.form.get("random_forest") == 'true',
+            "Stochastic Gradient Descent": request.form.get("stochastic_gradient_descent") == 'true',
+            "Multi-Layer Neural Network": request.form.get("multi_layer_neural_network") == 'true',
+            "Decision Trees": request.form.get("decision_trees") == 'true',
+            "XGBoost": request.form.get("xgboost") == 'true'
         }
     }
 
