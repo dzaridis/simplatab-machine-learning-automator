@@ -1,14 +1,17 @@
 import os
 import subprocess
 import webbrowser
-from tkinter import Tk, Label, Button, filedialog, PhotoImage, Frame
+import time
+from tkinter import Tk, Label, Button, filedialog, Frame, messagebox
 
 class DockerApp:
     def __init__(self, master):
         self.master = master
-        master.title("Simplatab")
+        master.title("Docker Volume Setup")
 
-        # Set up the background image
+        # Line for citation
+        self.citation_label = Label(master, text="Please install Docker Desktop to run the tool. If you proceed to run it without docker desktop you will be prompted on the page to download it.", bg='#ffffff')
+        self.citation_label.pack(side='top', pady=10)
 
         # Create a frame to hold the widgets
         self.frame = Frame(master, bg='#ffffff', bd=5)
@@ -58,6 +61,14 @@ class DockerApp:
             print("Please select both input and output folders.")
             return
 
+        # Check if Docker Desktop is installed
+        if not self.is_docker_installed():
+            self.prompt_docker_installation()
+            return
+
+        # Start Docker Desktop if it's not running
+        self.start_docker_desktop()
+
         # Save the selected folders to environment variables
         os.environ['INPUT_FOLDER'] = self.input_folder
         os.environ['OUTPUT_FOLDER'] = self.output_folder
@@ -66,6 +77,16 @@ class DockerApp:
         with open('.env', 'w') as env_file:
             env_file.write(f"INPUT_FOLDER={self.input_folder}\n")
             env_file.write(f"OUTPUT_FOLDER={self.output_folder}\n")
+
+        # Check if Docker image exists locally
+        image_name = "dimzaridis/simplatab-machine-learning-automator:0.7.4-TestVersion"
+        image_exists = self.check_docker_image_exists(image_name)
+
+        if not image_exists:
+            # Pull the Docker image if it doesn't exist locally
+            docker_pull_command = f"docker pull {image_name}"
+            print(f"Pulling Docker image: {docker_pull_command}")
+            subprocess.run(docker_pull_command, shell=True)
 
         # Run Docker Compose
         docker_compose_command = "docker-compose up -d"
@@ -79,12 +100,40 @@ class DockerApp:
         # Open the browser to localhost:8000 after a delay
         self.master.after(10000, self.open_browser)  # 180000 milliseconds = 3 minutes
 
+    def is_docker_installed(self):
+        try:
+            subprocess.run("docker --version", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+
+    def prompt_docker_installation(self):
+        messagebox.showinfo("Docker Not Found", "Docker Desktop is not installed. You will be redirected to the Docker Desktop download page.")
+        webbrowser.open("https://www.docker.com/products/docker-desktop")
+
+    def start_docker_desktop(self):
+        try:
+            # Check if Docker is running by executing a simple Docker command
+            subprocess.run("docker info", shell=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print("Docker is already running.")
+        except subprocess.CalledProcessError:
+            print("Docker is not running. Starting Docker Desktop...")
+            # Start Docker Desktop
+            docker_desktop_path = r"C:\Program Files\Docker\Docker\Docker Desktop.exe"  # Update the path if needed
+            subprocess.Popen([docker_desktop_path])
+            # Wait for Docker to start
+            time.sleep(40)  # Adjust the sleep time as needed to ensure Docker starts
+
+    def check_docker_image_exists(self, image_name):
+        result = subprocess.run(f"docker images -q {image_name}", shell=True, capture_output=True, text=True)
+        return result.stdout.strip() != ""
+
     def open_browser(self):
         webbrowser.open("http://localhost:5000")
         self.run_button.config(text="Run the Tool")
 
 if __name__ == "__main__":
     root = Tk()
-    root.geometry("640x400")  # Set the window size
+    root.geometry("800x600")  # Set the window size
     docker_app = DockerApp(root)
     root.mainloop()

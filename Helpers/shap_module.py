@@ -44,8 +44,9 @@ class ShapValues:
             self.MODEL_TYPE = 1
         else:
             self.MODEL_TYPE = 0
-    
-    def __data_transform(self, x_val:pd.DataFrame, y_val:pd.Series) -> tuple:
+
+    @staticmethod
+    def __data_transform(ppln, x_val:pd.DataFrame, y_val:pd.Series) -> tuple:
         """_summary_
 
         Args:
@@ -56,9 +57,12 @@ class ShapValues:
             tuple: (transformed_data, columns_names) tuple of transformed data and column names
         """
         data_test = pd.concat([x_val, y_val], axis = 1)
-        transformed_1 = self.ppln.named_steps["FeatureWizFs"].transform(data_test)
-        transformed_2 = self.ppln.named_steps["preprocessor"].transform(transformed_1)
-        return transformed_2, transformed_1.columns.tolist()
+        transformed_1 = ppln["FeatureWizFs"].transform(data_test)
+        transformed_2 = ppln["preprocessor"].transform(transformed_1)
+        categorical_features = ppln.named_steps["preprocessor"].named_transformers_["cat"].get_feature_names_out(ppln.named_steps["preprocessor"].transformers_[1][2]).tolist()
+        numeric_features = list(ppln.named_steps["preprocessor"].transformers_[0][2])
+        columns_names = numeric_features + categorical_features
+        return transformed_2, columns_names
 
     def __sample_data(self, x_val: pd.DataFrame, y_val: pd.Series) -> tuple:
         """This function samples the data to get equal number of samples from each class.
@@ -112,15 +116,15 @@ class ShapValues:
             np.ndarray: (samples, features) array of SHAP values
         """
         if self.MODEL_TYPE == 1:
-            transformed_data, columns_names = self.__data_transform(x_val, y_val)
-            explainer = shap.Explainer(self.model, transformed_data)
-            shap_values = explainer(transformed_data)
+            transformed_2, columns_names = self.__data_transform(self.ppln, x_val, y_val)
+            explainer = shap.Explainer(self.model, transformed_2)
+            shap_values = explainer(transformed_2)
             shap_values.feature_names = columns_names
         else:
             sampled_x, sampled_y = self.__sample_data(x_val, y_val)
-            transformed_data, columns_names = self.__data_transform(sampled_x, sampled_y)
-            explainer = shap.KernelExplainer(self.model.predict_proba, transformed_data)
-            shap_values = explainer(transformed_data)
+            transformed_2, columns_names = self.__data_transform(self.ppln, x_val, y_val)
+            explainer = shap.KernelExplainer(self.model.predict_proba, transformed_2)
+            shap_values = explainer(transformed_2)
             shap_values.feature_names = columns_names
         
         shap_values = self.__get_shap_values_for_class(shap_values)
