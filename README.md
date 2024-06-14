@@ -46,7 +46,7 @@ docker pull dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion
 ```
 and run the docker image as  
 ```bash
-sudo docker run -v /absolute_path/to/your/input_data:/input_data  
+sudo docker run -p 5000:5000 -v /absolute_path/to/your/input_data:/input_data  
                 -v /absolute_path/to/your/Empty/Folder/For_the/outcomes/to_be/stored:/Materials  
                 dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion (or latest)
 ```
