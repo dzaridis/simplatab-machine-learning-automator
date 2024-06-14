@@ -1,6 +1,6 @@
 
 # SIMPLATAB: **SI**mplified **M**achine **P**ipe**L**ine **A**utomator for **TAB**ular data
-![ML Pipeline](static\images_materials\MLPipeline.png)
+![ML Pipeline](static/images_materials/MLPipeline.png)
 ## Overview
 Simplatab is a comprehensive machine learning pipeline designed to automate the process of data bias detection, training, evaluation, and validatiion of typical ML classification models bundled with XAI shap analysis. It provides a robust framework for bias detection, feature selection, preprocessing, hyperparameter tuning, model evaluation, and XAI analysis ensuring efficient and accurate model performance.
 
