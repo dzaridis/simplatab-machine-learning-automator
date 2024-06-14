@@ -23,7 +23,7 @@ Simplatab is a comprehensive machine learning pipeline designed to automate the 
 
 ## Context
 Simplatab framework runs a complete Machine Learning Pipeline from **Data Bias assessment** to **model train** and **evaluation** and **XAI analysis** with Shap, for a variety of selectable models.
-Please navigate to the ![Examples Folder](Example) where examplars Train.csv and Test.csv are given along with the outcomes after the execution of the tool
+Please navigate to the [Examples Folder](Example) where examplars Train.csv and Test.csv are given along with the outcomes after the execution of the tool
 
 ## Requirements
 - **Python 3.x** for the Python API
@@ -31,10 +31,10 @@ Please navigate to the ![Examples Folder](Example) where examplars Train.csv and
 - **Required Python Libraries**: `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `xgboost`, `shap`, `featurewiz`
 
 ## Run as Desktop app
-Navigate at ![Desktop App](app_exe) and download the Simplatab.exe  
+Navigate at [Desktop App](app_exe) and download the Simplatab.exe  
 IMPORTANT NOTE. You need to have docker desktop installed on your PC  
 Download it from here 
-![Docker](https://www.docker.com/products/docker-desktop/)
+[Docker](https://www.docker.com/products/docker-desktop/)
 
 After that just double click and Run the tool.
 There you need to define input folder with the data (Read [Data Requirements](#requirements-for-the-Data))
