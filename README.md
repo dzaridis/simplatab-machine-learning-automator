@@ -60,8 +60,8 @@ A page like the following should be open. There configure what are the elements 
 For Instance if you want to perform Bias assessment, How many folds to run for the internal k-fold cross-val
 and what models you wish to run
 
-![Simplatab](static\images_materials\s1.jpg)
-![Interface](static\images_materials\s2.jpg)
+![Simplatab](static/images_materials/s1.jpg)
+![Interface](static/images_materials/s2.jpg)
 
 ## Run as Python API
 1. Clone the repository to the desired folder  
