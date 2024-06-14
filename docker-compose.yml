@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  simplatab-machine-learning-automator:
+    build: .
+    container_name: smplt
+    volumes:
+      - place/your/input_data folder/here:/input_data  # Mount the local input_data directory to the container
+      - place/your/output folder/here:/Materials    # Mount the local Materials directory to the container
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "5000:5000"  # Map port 5000 on the host to port 5000 in the container

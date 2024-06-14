@@ -7,7 +7,7 @@ from tkinter import Tk, Label, Button, filedialog, Frame, messagebox
 class DockerApp:
     def __init__(self, master):
         self.master = master
-        master.title("Docker Volume Setup")
+        master.title("Simplatab Machine Learning Automator")
 
         # Line for citation
         self.citation_label = Label(master, text="Please install Docker Desktop to run the tool. If you proceed to run it without docker desktop you will be prompted on the page to download it.", bg='#ffffff')
@@ -89,7 +89,8 @@ class DockerApp:
             subprocess.run(docker_pull_command, shell=True)
 
         # Run Docker Compose
-        docker_compose_command = "docker-compose up -d"
+        docker_compose_file = os.path.join(os.path.dirname(__file__), 'docker-compose.yml')
+        docker_compose_command = f"docker-compose -f {docker_compose_file} up -d"
         print(f"Running command: {docker_compose_command}")
         subprocess.run(docker_compose_command, shell=True)
 
