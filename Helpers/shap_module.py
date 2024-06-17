@@ -44,7 +44,7 @@ class ShapValues:
             self.MODEL_TYPE = 1
         elif isinstance(self.model, DecisionTreeClassifier):
             self.MODEL_TYPE = 2
-        if isinstance(self.model, LogisticRegression):
+        elif isinstance(self.model, LogisticRegression):
             self.MODEL_TYPE = 3
         else:
             self.MODEL_TYPE = 0
