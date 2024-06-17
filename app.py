@@ -165,9 +165,13 @@ def main(input_folder, output_folder, selected_facet,  bias_assess=False):
         external_test(X_train, y_train, X_test, y_test, params_dict, thresholds)
 
         pipeline_status_message = "Completed"
-    except UnboundLocalError as e:
+    except Exception as e:
         print(e)
         pipeline_status_message = f"Error: {e}"
+    finally:
+        # Inform the user
+        print(pipeline_status_message)
+        # Terminate the Docker container
 
 
 if __name__ == "__main__":

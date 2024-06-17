@@ -45,7 +45,7 @@ hyperparameters_models_grid = {
             'max_iter': [1000, 2000, 3000],
             'probability': [True]
         },
-        "default_params": {}
+        "default_params": {'probability': True}
     },
     "Random Forest": {
         "classifier": RandomForestClassifier,
@@ -79,7 +79,7 @@ hyperparameters_models_grid = {
             'n_iter_no_change': [5, 10, 20],
             'average': [False, True]
         },
-        "default_params": {}
+        "default_params": {'loss': 'modified_huber'}
     },
     "Multi-Layer Neural Network": {
         "classifier": MLPClassifier,
@@ -226,37 +226,6 @@ def train_k_fold(X_train, y_train):
         print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
     MetricsReport.summary_results_excel(scores_storage, file = f"{NUMBER_OF_FOLDS}_fold_results", conf_matrix_name=f"Internal_{NUMBER_OF_FOLDS}_fold")
     return params_dict, scores_storage, thresholds, base_models_folds
-
-# def train_k_fold_stacking(X_train, y_train, base_models_folds):
-#     k_folds = NUMBER_OF_FOLDS
-#     thresholds_algo = {}
-#     skf = StratifiedKFold(n_splits=k_folds, shuffle = True, random_state=10)
-#     for i, (train_index, test_index) in enumerate(skf.split(X_train, y_train)):
-#         xtrain = X_train.iloc[train_index,:]
-#         ytrain = y_train.iloc[train_index]
-#         xval = X_train.iloc[test_index,:]
-#         yval = y_train.iloc[test_index]
-
-#         base_models_fitted = []
-#         for nm, base_models in base_models_folds.items():
-#             base_models_fitted.append((nm,base_models[f"fold_{i+1}"]))
-#         # Train the stacking model
-#         meta_learner = LogisticRegression(random_state=42)
-        
-#         # Create the stacking classifier
-#         stacking_clf = StackingClassifier(
-#             estimators=base_models_fitted,
-#             final_estimator=meta_learner,
-#             passthrough=True,  # Include original features along with predictions for meta-learner
-#             cv='prefit'  # 5-fold cross-validation
-#             )
-        
-#         stacking_clf.fit(xtrain, ytrain)
-        
-
-#         tho = behave_metrics.ThresholdOptimizer(stacking_clf, xval, yval)
-#         thresh = tho.find_optimal_threshold(metric_to_track=METRIC_TO_TRACK)
-#         thresholds_algo.update({f"fold_{i+1}":thresh})
             
 
 def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
@@ -298,15 +267,18 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
                                 nm=nm)
 
         print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
-    MetricsReport.external_summary(scores_inf, file = "test_results", conf_matrix_name="Test")
-    # display roc curves
-    roc = behave_metrics.ROCCurveEvaluator(pipeline_dict_inf,X_test=X_test, y_true=y_test)
-    roc.evaluate_models()
-    roc.plot_roc_curves(save_path=r"./Materials")
     try:
+        MetricsReport.external_summary(scores_inf, file = "test_results", conf_matrix_name="Test")
+        # display roc curves
+    except Exception as e:
+        print(f"Error here: {e}")
+    try:
+        roc = behave_metrics.ROCCurveEvaluator(pipeline_dict_inf,X_test=X_test, y_true=y_test)
+        roc.evaluate_models()
+        roc.plot_roc_curves(save_path=r"./Materials")
         roc.plot_pr_curves(save_path=r"./Materials")
-    except:
-        pass
+    except Exception as e:
+        print(f"Error here: {e}")
 
     save_path_for_models = os.path.join("./Materials", "Models")
     os.makedirs(save_path_for_models, exist_ok=True)

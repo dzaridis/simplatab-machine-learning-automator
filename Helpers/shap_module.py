@@ -7,7 +7,7 @@ from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import SGDClassifier, LogisticRegression
 import matplotlib.pyplot as plt
 
 class ShapValues:
@@ -40,12 +40,17 @@ class ShapValues:
         """
         self.ppln = ppln
         self.model = ppln["model"]
-        if isinstance(self.model, (XGBClassifier, RandomForestClassifier, DecisionTreeClassifier, AdaBoostClassifier, SGDClassifier)):
+        if isinstance(self.model, (XGBClassifier, RandomForestClassifier, AdaBoostClassifier)):
             self.MODEL_TYPE = 1
+        elif isinstance(self.model, DecisionTreeClassifier):
+            self.MODEL_TYPE = 2
+        elif isinstance(self.model, LogisticRegression):
+            self.MODEL_TYPE = 3
         else:
             self.MODEL_TYPE = 0
-    
-    def __data_transform(self, x_val:pd.DataFrame, y_val:pd.Series) -> tuple:
+
+    @staticmethod
+    def __data_transform(ppln, x_val:pd.DataFrame, y_val:pd.Series) -> tuple:
         """_summary_
 
         Args:
@@ -56,13 +61,16 @@ class ShapValues:
             tuple: (transformed_data, columns_names) tuple of transformed data and column names
         """
         data_test = pd.concat([x_val, y_val], axis = 1)
-        transformed_1 = self.ppln.named_steps["FeatureWizFs"].transform(data_test)
-        transformed_2 = self.ppln.named_steps["preprocessor"].transform(transformed_1)
-        return transformed_2, transformed_1.columns.tolist()
+        transformed_1 = ppln["FeatureWizFs"].transform(data_test)
+        transformed_2 = ppln["preprocessor"].transform(transformed_1)
+        categorical_features = ppln.named_steps["preprocessor"].named_transformers_["cat"].get_feature_names_out(ppln.named_steps["preprocessor"].transformers_[1][2]).tolist()
+        numeric_features = list(ppln.named_steps["preprocessor"].transformers_[0][2])
+        columns_names = numeric_features + categorical_features
+        return transformed_2, columns_names
 
-    def __sample_data(self, x_val: pd.DataFrame, y_val: pd.Series) -> tuple:
-        """This function samples the data to get equal number of samples from each class.
-        It samples 10 samples from each class in order to get a balanced dataset for SHAP values calculation
+    def __sample_data(self, x_val: pd.DataFrame, y_val: pd.Series,sample_size=100) -> tuple:
+        """This function samples the data to get an equal number of samples from each class.
+        It samples a percentage from each class to get a balanced dataset for SHAP values calculation
         and also mitigate the slow kernel explanations for large datasets.
 
         Args:
@@ -74,17 +82,37 @@ class ShapValues:
         """
         positive_indices = y_val[y_val == 1].index
         control_indices = y_val[y_val == 0].index
-        num_samples = min(len(positive_indices), len(control_indices), 10)
+
+        num_positive = len(positive_indices)
+        num_control = len(control_indices)
+
+        # Determine the number of samples to take from each class
+        total_samples = num_positive + num_control
+        if total_samples <= sample_size:
+            return x_val, y_val
+
+        # Calculate the percentage to sample from each class
+        sample_percentage = min(1, sample_size / total_samples)
+
+        num_positive_samples = int(num_positive * sample_percentage)
+        num_control_samples = int(num_control * sample_percentage)
 
         # Sample instances from each class
-        sampled_positive = x_val.loc[positive_indices].sample(n=num_samples, random_state=42)
-        sampled_control = x_val.loc[control_indices].sample(n=num_samples, random_state=42)
+        sampled_positive = x_val.loc[positive_indices].sample(n=num_positive_samples, random_state=42)
+        sampled_control = x_val.loc[control_indices].sample(n=num_control_samples, random_state=42)
 
         # Combine the samples
         sampled_data = pd.concat([sampled_positive, sampled_control])
         sampled_y = y_val.loc[sampled_data.index]
 
         return sampled_data, sampled_y
+
+    def check_size(self, x: pd.DataFrame, y: pd.Series, sample_size=100) -> tuple:
+        if x.shape[0] > sample_size:
+            sampled_x, sampled_y = self.__sample_data(x, y, sample_size=sample_size)
+            return sampled_x, sampled_y
+        else:
+            return x, y
     
     @staticmethod
     def __get_shap_values_for_class(shap_values):
@@ -111,16 +139,31 @@ class ShapValues:
         Returns:
             np.ndarray: (samples, features) array of SHAP values
         """
+
+
         if self.MODEL_TYPE == 1:
-            transformed_data, columns_names = self.__data_transform(x_val, y_val)
-            explainer = shap.Explainer(self.model, transformed_data)
-            shap_values = explainer(transformed_data)
+            x_val, y_val = self.check_size(x_val, y_val, sample_size=100)
+            transformed_2, columns_names = self.__data_transform(self.ppln, x_val, y_val)
+            explainer = shap.Explainer(self.model, transformed_2)
+            shap_values = explainer(transformed_2)
+            shap_values.feature_names = columns_names
+        elif self.MODEL_TYPE == 2:
+            x_val, y_val = self.check_size(x_val, y_val, sample_size=100)
+            transformed_2, columns_names = self.__data_transform(self.ppln, x_val, y_val)
+            explainer = shap.TreeExplainer(self.model, transformed_2)
+            shap_values = explainer(transformed_2, check_additivity=False)
+            shap_values.feature_names = columns_names
+        elif self.MODEL_TYPE == 3:
+            x_val, y_val = self.check_size(x_val, y_val, sample_size=100)
+            transformed_2, columns_names = self.__data_transform(self.ppln, x_val, y_val)
+            explainer = shap.LinearExplainer(self.model, transformed_2)
+            shap_values = explainer(transformed_2)
             shap_values.feature_names = columns_names
         else:
-            sampled_x, sampled_y = self.__sample_data(x_val, y_val)
-            transformed_data, columns_names = self.__data_transform(sampled_x, sampled_y)
-            explainer = shap.KernelExplainer(self.model.predict_proba, transformed_data)
-            shap_values = explainer(transformed_data)
+            sampled_x, sampled_y = self.__sample_data(x_val, y_val, sample_size=14)
+            transformed_2, columns_names = self.__data_transform(self.ppln, sampled_x, sampled_y)
+            explainer = shap.KernelExplainer(self.model.predict_proba, transformed_2)
+            shap_values = explainer(transformed_2)
             shap_values.feature_names = columns_names
         
         shap_values = self.__get_shap_values_for_class(shap_values)
@@ -181,6 +224,9 @@ def ShapAnalysis(ppln:Pipeline,
     try:
         sv = ShapValues(ppln)
         shap_values = sv.calculate_shap_values(X_test, y_test)
+        print("-----------------------------------------------------------\n")
+        print("------------Shap values calculated successfully------------\n")
+        print("-----------------------------------------------------------\n")
         try:
             os.mkdir(os.path.join("./Materials", "Shap_Features"))
         except OSError:
@@ -194,17 +240,29 @@ def ShapAnalysis(ppln:Pipeline,
         
         plts = ShapPlots(shap_values=shap_values)
         try:
-            plts.summary(save=True, filename=os.path.join(shap_md_path, f"beeswarm_plot_MaxShapValues_{nm}.png"))
+            plts.bar(save=True, filename=os.path.join(shap_md_path, f"bar_plot_{nm}.png"))
         except IndexError as e:
-            error_message = f"Error here: Beeswarm with Max Values failed. Utilize the other shap figures to identify interpretabilty {e}\n"
+            error_message = f"bar plot failed. Utilize the other shap figures to identify interpretabilty {e}\n"
             with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
                 file.write(error_message)
             pass
-        plts.bar(save=True, filename=os.path.join(shap_md_path,f"bar_plot_{nm}.png"))
-        plts.beeswarm(save=True, filename=os.path.join(shap_md_path,f"beeswarm_plot_MaxShapValues_{nm}.png"))
-        plts.heatmap(save=True, filename=os.path.join(shap_md_path,f"heatmap_plot_{nm}.png"))
+        try:
+            plts.beeswarm(save=True, filename=os.path.join(shap_md_path, f"beeswarm_plot_MaxShapValues_{nm}.png"))
+        except Exception as e:
+            print(e)
+            with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
+                file.write(error_message)
+            pass
+        try:
+            plts.heatmap(save=True, filename=os.path.join(shap_md_path, f"heatmap_plot_{nm}.png"))
+        except Exception as e:
+            print(e)
+            error_message = f"Error here: Heatmap  failed. Utilize the other shap figures to identify interpretabilty {e}\n"
+            with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
+                file.write(error_message)
+            pass
     except Exception as e:
         error_message = f"Error here: {e}\n"
-        with open(os.path.join("Materials", "Shap_error_log.txt"), "a") as file:
+        with open(os.path.join("./Materials", "Shap_error_log.txt"), "a") as file:
             file.write(error_message)
         pass
