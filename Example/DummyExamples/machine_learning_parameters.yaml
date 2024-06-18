@@ -1,12 +1,12 @@
-Correlation Limit: 0.7
+Correlation Limit: 0.8
 Machine Learning Models:
-  Decision Trees: true
+  Decision Trees: false
   Logistic Regression: true
-  Multi-Layer Neural Network: true
-  Random Forest: true
-  Stochastic Gradient Descent: true
-  Support Vector Machines: true
-  XGBoost: true
+  Multi-Layer Neural Network: false
+  Random Forest: false
+  Stochastic Gradient Descent: false
+  Support Vector Machines: false
+  XGBoost: false
 Metric For Threshold Optimization: Balanced Accuracy
 apply_grid_search:
   enabled: false
