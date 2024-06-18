@@ -31,7 +31,7 @@ Please navigate to the [Examples Folder](Example) where examplars Train.csv and 
 - **Required Python Libraries**: `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `xgboost`, `shap`, `featurewiz`
 
 ## Run as Desktop app
-Download the Desktop app from [here](Simplatab-Setup-1.0.0.exe)
+Download the Desktop app from [here](Simplatab-Setup-1.0.0.exe). Just press the View Raw and it will be downloaded
 1. Run the .Exe to install it  
 2. Open Docker Desktop  
 IMPORTANT NOTE. You need to have docker desktop installed on your PC    
