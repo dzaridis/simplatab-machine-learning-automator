@@ -31,12 +31,11 @@ Please navigate to the [Examples Folder](Example) where examplars Train.csv and 
 - **Required Python Libraries**: `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `xgboost`, `shap`, `featurewiz`
 
 ## Run as Desktop app
-Download the Desktop app from [here](https://app.box.com/s/qlxlhfbiu001n9bf7les0ptupp0h5mzm)  
-1. Unzip the app_exe file  
-2. Go to **app_exe\Simplatab\dist\Simplatab-win32-x64** subfolder
-3. Double-Click the **Simplatab.exe**
-IMPORTANT NOTE. You need to have docker desktop installed on your PC  
-Download it from here 
+Download the Desktop app from [here](Simplatab-Setup-1.0.0.exe)
+1. Run the .Exe to install it  
+2. Open Docker Desktop  
+IMPORTANT NOTE. You need to have docker desktop installed on your PC    
+Download it from here   
 [Docker](https://www.docker.com/products/docker-desktop/)
 
 There you need to define input folder with the data (Read [Data Requirements](#requirements-for-the-Data)) and the output folder which will be empty
