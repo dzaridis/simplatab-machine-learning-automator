@@ -6,5 +6,5 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - D:\dimza\EXPERIMENTS\MachineLearningAutomator\Example\DummyExamples:/input_data
-      - D:\dimza\EXPERIMENTS\MachineLearningAutomator\Example\Materials2:/Materials
+      - ${INPUT_FOLDER}:/input_data
+      - ${OUTPUT_FOLDER}:/Materials

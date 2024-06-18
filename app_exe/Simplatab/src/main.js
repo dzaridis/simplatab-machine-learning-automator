@@ -41,31 +41,63 @@ ipcMain.handle('open-docker-link', (event, args) => {
 });
 
 ipcMain.handle('start-docker-compose', (event, inputDir, outputDir) => {
-    const dockerComposePath = path.join(__dirname, '..', 'docker-compose.yml');
+    // const dockerComposePath = path.join(__dirname, '..','docker-compose.yml');
+    // const dockerComposeBackupPath = path.join(__dirname,'..', 'docker-compose.yml.bak');
+    const dockerComposePath = path.join(process.resourcesPath, 'docker-compose.yml');
+    const dockerComposeBackupPath = path.join(process.resourcesPath, 'docker-compose.yml.bak');
+
     console.log(`Docker Compose file path: ${dockerComposePath}`);
-    
+
     if (!fs.existsSync(dockerComposePath)) {
         console.error(`Docker Compose file not found at path: ${dockerComposePath}`);
         return;
     }
 
-    let dockerComposeFile = fs.readFileSync(dockerComposePath, 'utf8');
-    dockerComposeFile = dockerComposeFile.replace('${INPUT_FOLDER}', inputDir);
-    dockerComposeFile = dockerComposeFile.replace('${OUTPUT_FOLDER}', outputDir);
+    // Read the original docker-compose.yml file
+    const originalComposeFile = fs.readFileSync(dockerComposePath, 'utf8');
 
-    fs.writeFileSync(dockerComposePath, dockerComposeFile, 'utf8');
-    console.log('Updated docker-compose.yml with paths:');
-    console.log(`Input Dir: ${inputDir}`);
-    console.log(`Output Dir: ${outputDir}`);
+    // Backup the original docker-compose.yml file
+    fs.writeFileSync(dockerComposeBackupPath, originalComposeFile);
 
-    exec('docker-compose up -d', { cwd: path.dirname(dockerComposePath) }, (err, stdout, stderr) => {
-        if (err) {
-            console.error(`Error starting Docker Compose: ${stderr}`);
-            return;
-        }
-        console.log(`Docker Compose started: ${stdout}`);
-        checkServiceStatus();
-    });
+    try {
+        // Replace variables in the content using regex
+        let updatedComposeFile = originalComposeFile
+            .replace(/\${INPUT_FOLDER}/g, inputDir.replace(/\\/g, '/'))
+            .replace(/\${OUTPUT_FOLDER}/g, outputDir.replace(/\\/g, '/'));
+
+        // Write the updated content to docker-compose.yml
+        fs.writeFileSync(dockerComposePath, updatedComposeFile, 'utf8');
+        console.log('Updated docker-compose.yml with paths:');
+        console.log(`Input Dir: ${inputDir}`);
+        console.log(`Output Dir: ${outputDir}`);
+
+        const verifyComposeFile = fs.readFileSync(dockerComposePath, 'utf8');
+        console.log('Contents of updated docker-compose.yml:');
+        console.log(verifyComposeFile);
+
+        const env = Object.assign({}, process.env, {
+            INPUT_FOLDER: inputDir.replace(/\\/g, '/'),
+            OUTPUT_FOLDER: outputDir.replace(/\\/g, '/')
+        });
+
+        exec('docker-compose up -d', { cwd: path.dirname(dockerComposePath), env: env }, (err, stdout, stderr) => {
+            if (err) {
+                console.error(`Error starting Docker Compose: ${stderr}`);
+                // Restore the original docker-compose.yml file in case of error
+                fs.writeFileSync(dockerComposePath, originalComposeFile);
+                return;
+            }
+            console.log(`Docker Compose started: ${stdout}`);
+            checkServiceStatus(env);
+        });
+    } catch (err) {
+        console.error(`Error updating Docker Compose file: ${err}`);
+        // Restore the original docker-compose.yml file in case of error
+        fs.writeFileSync(dockerComposePath, originalComposeFile);
+    } finally {
+        // Restore the original docker-compose.yml file
+        fs.writeFileSync(dockerComposePath, originalComposeFile);
+    }
 });
 
 ipcMain.handle('switch-to-vision-impaired-mode', (event, args) => {
@@ -76,11 +108,11 @@ ipcMain.handle('switch-to-normal-mode', (event, args) => {
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 });
 
-function checkServiceStatus() {
+function checkServiceStatus(env) {
     let serviceUp = false;
     let interval = setInterval(() => {
         try {
-            let logs = execSync('docker-compose logs api', { cwd: path.join(__dirname, '..') }).toString();
+            let logs = execSync('docker-compose logs api', { cwd: path.join(process.resourcesPath), env: env }).toString();
             console.log('Checking Docker Compose logs:');
             console.log(logs);
             if (logs.includes('Running on http://127.0.0.1:5000')) {
