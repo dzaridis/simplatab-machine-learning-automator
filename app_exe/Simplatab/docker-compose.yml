@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  api:
+    image: dimzaridis/simplatab-machine-learning-automator:0.7.4-TestVersion
+    ports:
+      - "5000:5000"
+    volumes:
+      - D:\dimza\EXPERIMENTS\MachineLearningAutomator\Example\DummyExamples:/input_data
+      - D:\dimza\EXPERIMENTS\MachineLearningAutomator\Example\Materials2:/Materials
