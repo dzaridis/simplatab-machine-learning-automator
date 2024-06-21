@@ -34,18 +34,20 @@ Sole requirement is to have Docker Desktop installed on you system and open it b
 
 ## Run as Desktop app
 Download the Desktop app from [here](Simplatab-Setup-1.0.0.exe). Just press the View Raw and it will be downloaded
-1. Run the .Exe to install it  
-2. Open Docker Desktop  
+1. Run the .Exe to install it
+2. The Executable Application (Desktop App) has the following frontend
+![ExeFrontEnd](static/images_materials/ExeImage.png)
+3. Open Docker Desktop  
 IMPORTANT NOTE. You need to have docker desktop installed on your PC    
 Download it from here   
 [Docker](https://www.docker.com/products/docker-desktop/)
 
 There you need to define input folder with the data (Read [Data Requirements](#requirements-for-the-Data)) and the output folder which will be empty  
-3. When the App runs please select the input and output folders and press the "Run the tool" button    
-4. Wait a few minutes to download the docker image (If you open the Docker Desktop you should see a new image as dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion)  
-5. From there you will be redirected to a web browser where a page will open to fill in several parameters such as model selection, to run data bias detection etc.  
-6. When you press the submit button the pipeline already runs. After a while you should see on the output folder you specified before the outcomes of the framework
-7. When it finishes just close the App and Docker
+4. When the App runs please select the input and output folders and press the "Run the tool" button    
+5. Wait a few minutes to download the docker image (If you open the Docker Desktop you should see a new image as dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion)  
+6. From there you will be redirected to a web browser where a page will open to fill in several parameters such as model selection, to run data bias detection etc.  
+7. When you press the submit button the pipeline already runs. After a while you should see on the output folder you specified before the outcomes of the framework
+8. When it finishes just close the App and Docker
 
 ## Run as Docker Image
 You can pull Directly the Docker Image as   
