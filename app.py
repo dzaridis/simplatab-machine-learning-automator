@@ -31,6 +31,8 @@ def get_train_columns(input_folder):
 def index():
     input_folder = './input_data' 
     columns = get_train_columns(input_folder)
+    if not columns:
+        columns.append("None")
     return render_template('index.html', columns=columns)
 
 
@@ -87,6 +89,11 @@ def run_pipeline():
     output_folder = "./Materials"
     selected_facet = request.args.get('selected_facet')
     bias_assess = request.args.get('bias_assess').lower() == 'true'
+    if bias_assess:
+        columns = get_train_columns(input_folder)
+        if not columns or request.form.get('facet') == "None":
+            bias_assess = False
+            pipeline_status_message = "Bias assessment failed. No categorical columns found in Train.csv"
     try:
         import threading
         pipeline_status_message = "Running"

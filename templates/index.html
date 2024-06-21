@@ -49,6 +49,21 @@
                 checkbox.checked = checked;
             });
         }
+
+        function toggleFacetRequirement() {
+            const biasAssess = document.getElementById('bias_assess').value;
+            const facetField = document.getElementById('facet');
+            if (biasAssess === 'true') {
+                facetField.setAttribute('required', 'true');
+            } else {
+                facetField.removeAttribute('required');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('bias_assess').addEventListener('change', toggleFacetRequirement);
+            toggleFacetRequirement();  // Initial check
+        });
     </script>
 </head>
 <body role="main">
@@ -68,10 +83,11 @@
         </div>
         <div class="form-group">
             <label for="facet">Select Column to Check Bias in respect to the Target Class:</label>
-            <select class="form-control" id="facet" name="facet" required aria-required="true">
+            <select class="form-control" id="facet" name="facet">
                 {% for column in columns %}
                 <option value="{{ column }}">{{ column }}</option>
                 {% endfor %}
+                <option value="None">None</option>
             </select>
             <small id="FacetHelp" class="form-text text-muted">Select the column with categorical values that you want to assess for data bias in respect to the positive class.</small>
         </div>

@@ -7,6 +7,7 @@ radiomics_setup.py
 # C extensions
 *.so
 .vscode
+docker-compose.yml
 
 
 # Folders
@@ -19,6 +20,8 @@ FutureUpdates.txt
 experimentation.ipynb
 Materials2
 app_exe
+Example
+
 
 # Distribution / packaging
 .Python

@@ -1,0 +1,23 @@
+{
+    "name": "Python Dev Container",
+    "context": "..",
+    "dockerFile": "../Dockerfile",
+    "workspaceFolder": "/workspace",
+    "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
+    "mounts": [
+        "source=${localWorkspaceFolder}/Example/DummyExamples,target=/input_data,type=bind",
+        "source=${localWorkspaceFolder}/Example/DemoOutputs,target=/Materials,type=bind",
+        "source=${localWorkspaceFolder},target=/workspace,type=bind"
+    ],
+    "settings": {
+        "python.pythonPath": "/usr/local/bin/python",
+        "python.autoComplete.extraPaths": ["/workspace"]
+    },
+    "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+    ],
+    "forwardPorts": [5000],
+    "postCreateCommand": "pip install --no-cache-dir -r requirements.txt",
+    "remoteUser": "root"
+}

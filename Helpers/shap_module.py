@@ -140,12 +140,11 @@ class ShapValues:
             np.ndarray: (samples, features) array of SHAP values
         """
 
-
         if self.MODEL_TYPE == 1:
             x_val, y_val = self.check_size(x_val, y_val, sample_size=100)
             transformed_2, columns_names = self.__data_transform(self.ppln, x_val, y_val)
             explainer = shap.Explainer(self.model, transformed_2)
-            shap_values = explainer(transformed_2)
+            shap_values = explainer(transformed_2, check_additivity=False)
             shap_values.feature_names = columns_names
         elif self.MODEL_TYPE == 2:
             x_val, y_val = self.check_size(x_val, y_val, sample_size=100)
