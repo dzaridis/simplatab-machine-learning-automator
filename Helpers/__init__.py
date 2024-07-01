@@ -5,3 +5,4 @@ from Helpers import MetricsReport
 from Helpers import pipelines_main
 from Helpers import data_checks
 from Helpers import DBDM
+from Helpers import model_vulnerabilities

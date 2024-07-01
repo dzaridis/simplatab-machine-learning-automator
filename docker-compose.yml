@@ -5,8 +5,8 @@ services:
     build: .
     container_name: smplt
     volumes:
-      - place/your/input_data folder/here:/input_data  # Mount the local input_data directory to the container
-      - place/your/output folder/here:/Materials    # Mount the local Materials directory to the container
+      - ./Example/DummyExamples:/input_data  # Adjusted volume path
+      - ./Example/DemoOutputs:/Materials    # Adjusted volume path
     environment:
       - PYTHONUNBUFFERED=1
     ports:

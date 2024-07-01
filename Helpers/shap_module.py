@@ -169,6 +169,7 @@ class ShapValues:
 
         return shap_values
 
+
 class ShapPlots:
     def __init__(self, shap_values: np.ndarray) -> None:
         self.shap_values = shap_values

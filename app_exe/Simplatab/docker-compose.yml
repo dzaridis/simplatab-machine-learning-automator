@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   api:
-    image: dimzaridis/simplatab-machine-learning-automator:0.7.5-TestVersion
+    image: dimzaridis/simplatab-machine-learning-automator:0.7.6-TestVersion
     ports:
       - "5000:5000"
     volumes:

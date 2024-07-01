@@ -5,6 +5,7 @@ import yaml
 from Helpers.pipelines_main import train_k_fold, external_test, read_yaml
 from Helpers.data_checks import DataChecker
 from Helpers import DBDM
+from Helpers import model_vulnerabilities
 import warnings
 warnings.simplefilter(action='ignore', category=Warning)
 
@@ -170,6 +171,11 @@ def main(input_folder, output_folder, selected_facet,  bias_assess=False):
 
         print("------------- \n", " Evaluating algorithms on Test.csv \n", "-------------")
         external_test(X_train, y_train, X_test, y_test, params_dict, thresholds)
+        try:
+            model_vulnerabilities.execute_vulnerabilities_detection(pd.concat([X_test, y_test], axis=1))
+        except Exception as e:
+            print("Error in model vulnerabilities detection: ", e)
+            pass
 
         pipeline_status_message = "Completed"
     except Exception as e:
