@@ -50,6 +50,7 @@ class FeatureSelection:
     def get_features(self):
         return self.selected_features, self.feat_sel
 
+
 class DataPreprocessor:
     def __init__(self, X_train):
         self.X_train = X_train
@@ -60,13 +61,19 @@ class DataPreprocessor:
         categorical_features = self.X_train.select_dtypes(include=['object']).columns
         
         num_transformer = StandardScaler()
-        cat_transformer = OneHotEncoder()
-
-        self.preprocessor = ColumnTransformer(
-            transformers=[
+        
+        if len(categorical_features) > 0:
+            cat_transformer = OneHotEncoder()
+            transformers = [
                 ('num', num_transformer, numerical_features),
                 ('cat', cat_transformer, categorical_features)
-            ])
+            ]
+        else:
+            transformers = [
+                ('num', num_transformer, numerical_features)
+            ]
+
+        self.preprocessor = ColumnTransformer(transformers=transformers)
         return self.preprocessor
 
 class FeatureSelector:

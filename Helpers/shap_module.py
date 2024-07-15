@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+from sklearn.exceptions import NotFittedError
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
@@ -60,12 +61,22 @@ class ShapValues:
         Returns:
             tuple: (transformed_data, columns_names) tuple of transformed data and column names
         """
-        data_test = pd.concat([x_val, y_val], axis = 1)
+        data_test = pd.concat([x_val, y_val], axis=1)
         transformed_1 = ppln["FeatureWizFs"].transform(data_test)
         transformed_2 = ppln["preprocessor"].transform(transformed_1)
-        categorical_features = ppln.named_steps["preprocessor"].named_transformers_["cat"].get_feature_names_out(ppln.named_steps["preprocessor"].transformers_[1][2]).tolist()
+        
+        # Check for the presence of categorical features
+        if 'cat' in ppln.named_steps["preprocessor"].named_transformers_.keys():
+            try:
+                categorical_features = ppln.named_steps["preprocessor"].named_transformers_["cat"].get_feature_names_out(ppln.named_steps["preprocessor"].transformers_[1][2]).tolist()
+            except NotFittedError:
+                categorical_features = []
+        else:
+            categorical_features = []
+        
         numeric_features = list(ppln.named_steps["preprocessor"].transformers_[0][2])
         columns_names = numeric_features + categorical_features
+        
         return transformed_2, columns_names
 
     def __sample_data(self, x_val: pd.DataFrame, y_val: pd.Series,sample_size=100) -> tuple:
