@@ -47,7 +47,8 @@ There you need to define input folder with the data (Read [Data Requirements](#r
 5. Wait a few minutes to download the docker image (If you open the Docker Desktop you should see a new image as dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion)  
 6. From there you will be redirected to a web browser where a page will open to fill in several parameters such as model selection, to run data bias detection etc.  
 7. When you press the submit button the pipeline already runs. After a while you should see on the output folder you specified before the outcomes of the framework
-8. When it finishes just close the App and Docker
+8. You can close the HTTP page ("Pipeline Status") and just chill & wait for the results to be presented at the output folder you specified before
+9. When it finishes just close the App and Docker
 
 ## Run as Docker Image
 You can pull Directly the Docker Image as   
