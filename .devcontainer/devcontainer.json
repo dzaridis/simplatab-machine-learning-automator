@@ -1,16 +1,15 @@
 {
     "name": "Python Dev Container",
     "context": "..",
-    "dockerFile": "../Dockerfile",
+    "dockerFile": "../dockerfile",
     "workspaceFolder": "/workspace",
-    "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
     "mounts": [
-        "source=${localWorkspaceFolder}/Example/DummyExamples,target=/input_data,type=bind",
-        "source=${localWorkspaceFolder}/Example/DemoOutputs,target=/Materials,type=bind",
+        "source=${localWorkspaceFolder}/Example/DummyExamples,target=/workspace/input_data,type=bind",
+        "source=${localWorkspaceFolder}/Example/DemoOutputs,target=/workspace/Materials,type=bind",
         "source=${localWorkspaceFolder},target=/workspace,type=bind"
     ],
     "settings": {
-        "python.pythonPath": "/usr/local/bin/python",
+        "python.pythonPath": "/workspace/giskard_env/bin/python",
         "python.autoComplete.extraPaths": ["/workspace"]
     },
     "extensions": [

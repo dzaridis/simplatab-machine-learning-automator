@@ -2,7 +2,7 @@
 FROM python:3.9-slim
 
 # Set the working directory
-WORKDIR /
+WORKDIR /workspace
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
@@ -13,8 +13,13 @@ COPY . .
 RUN pip install virtualenv
 
 # Create a virtual environment for Giskard and install Giskard
-RUN virtualenv giskard_env
-RUN . giskard_env/bin/activate && pip install giskard -U && pip install requests==2.25.1 urllib3==1.26.5
+RUN virtualenv /giskard_env
+RUN /giskard_env/bin/pip install giskard -U && \
+    /giskard_env/bin/pip install requests==2.25.1 urllib3==1.26.5
+
+# Update PATH so that the venv is used by default
+ENV PATH="/giskard_env/bin:$PATH"
+
 
 # Install Flask and other necessary packages
 RUN pip install --no-cache-dir -r requirements.txt
@@ -27,5 +32,5 @@ VOLUME ["/input_data", "/Materials"]
 # Expose the port the app runs on
 EXPOSE 5000
 
-ENTRYPOINT ["python"]
-CMD ["app.py"]
+# ENTRYPOINT ["python"]
+# CMD ["app.py"]

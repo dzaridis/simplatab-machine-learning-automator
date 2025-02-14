@@ -21,6 +21,10 @@ experimentation.ipynb
 Materials2
 app_exe
 Example
+DummyExamples
+SimplatabOutputs
+Train.csv
+Test.csv
 
 
 # Distribution / packaging
@@ -175,3 +179,4 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+Example/DummyExamples/Test.csv

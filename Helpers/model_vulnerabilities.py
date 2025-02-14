@@ -82,8 +82,8 @@ def execute_vulnerabilities_detection(df_test: pd.DataFrame):
         model = vulnerability_detection.gisk_model()
         results = scan(model, dataset)
         try:
-            os.mkdir("../Materials/Model_Vulnerabilities")
+            os.mkdir("./Materials/Model_Vulnerabilities")
         except FileExistsError:
             pass
-        pth = os.path.join("../Materials/Model_Vulnerabilities", f"{model_name}_vulnerabilities.html")
+        pth = os.path.join("./Materials/Model_Vulnerabilities", f"{model_name}_vulnerabilities.html")
         results.to_html(pth)
