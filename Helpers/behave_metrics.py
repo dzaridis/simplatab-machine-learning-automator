@@ -21,7 +21,10 @@ class Metrics:
 
     def _proba_convert(self, threshold: float):
         """Convert probabilities into binary outcomes based on threshold."""
-        self.y_pred = np.where(self.y_pred[:, 1] > threshold, 1, 0)
+        try:
+            self.y_pred = np.where(self.y_pred[:, 1] > threshold, 1, 0)
+        except IndexError:
+            self.y_pred = np.where(self.y_pred > threshold, 1, 0)
 
     def _perf_measure(self):
         """Compute confusion matrix components."""
@@ -189,7 +192,7 @@ class ROCCurveEvaluator:
         plt.legend(loc="lower right")
         sns.despine()  # Remove the top and right spines
         if save_path:
-            plt.savefig(os.path.join(save_path,"ROC CURVES.png"), format='png', dpi=400)  # Save the figure
+            plt.savefig(os.path.join(save_path,"ROC CURVES.png"), format='png', dpi=600)  # Save the figure
         #plt.show()
     
     def plot_pr_curves(self, save_path=None):
@@ -208,5 +211,17 @@ class ROCCurveEvaluator:
         plt.legend(loc="lower left")
         sns.despine()  # Remove the top and right spines
         if save_path:
-            plt.savefig(os.path.join(save_path, "PR_CURVES.png"), format='png', dpi=400)  # Save the figure
+            plt.savefig(os.path.join(save_path, "PR_CURVES.png"), format='png', dpi=600)  # Save the figure
         plt.show()
+
+
+class ModelEvaluator:
+    def __init__(self, pipeline, X_test):
+        self.pipeline = pipeline
+        self.X_test = X_test
+
+    def evaluate(self):
+        
+        y_test_pred = self.pipeline.predict_proba(self.X_test)
+
+        return {"y_test":y_test_pred}

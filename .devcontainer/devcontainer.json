@@ -4,8 +4,8 @@
     "dockerFile": "../dockerfile",
     "workspaceFolder": "/workspace",
     "mounts": [
-        "source=${localWorkspaceFolder}/Example/DummyExamples,target=/workspace/input_data,type=bind",
-        "source=${localWorkspaceFolder}/Example/DemoOutputs,target=/workspace/Materials,type=bind",
+        "source=${localWorkspaceFolder}/Example/UC2_clinical,target=/workspace/input_data,type=bind",
+        "source=${localWorkspaceFolder}/Example/UC2_Output,target=/workspace/Materials,type=bind",
         "source=${localWorkspaceFolder},target=/workspace,type=bind"
     ],
     "settings": {

@@ -219,9 +219,6 @@ class MLPipeline:
         else:
             raise NotFittedError("Model not trained yet. Call train_model() before prediction.")
 
-class ModelEvaluator:
-    def __init__(self, pipeline, X_test):
-        self.pipeline = pipeline
         self.X_test = X_test
 
     def evaluate(self):

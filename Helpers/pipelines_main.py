@@ -41,8 +41,6 @@ hyperparameters_models_grid = {
             'gamma': ['scale', 'auto', 0.001, 0.01, 0.1, 1, 10, 100],
             'coef0': [0, 0.1, 0.5, 1, 2],
             'shrinking': [True, False],
-            'tol': [1e-4, 1e-3, 1e-2, 1e-1],
-            'max_iter': [1000, 2000, 3000],
             'probability': [True]
         },
         "default_params": {'probability': True}
@@ -51,7 +49,7 @@ hyperparameters_models_grid = {
         "classifier": RandomForestClassifier,
         "params": {
             'n_estimators': [20, 50, 100, 200, 300, 400, 500],
-            'criterion': ['gini', 'entropy', 'log_loss'],
+            'criterion': ['gini', 'entropy', 'log400_loss'],
             'max_depth': [None, 2, 4, 6, 10, 20, 30, 40, 50],
             'min_samples_split': [2, 5, 10, 20],
             'min_samples_leaf': [1, 2, 4, 10],

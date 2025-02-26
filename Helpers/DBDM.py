@@ -157,7 +157,7 @@ def plot_bias_metrics(metrics, file_path, cluster_id=None):
         plot_file_path = os.path.splitext(file_path)[0] + f'_cluster_{cluster_id}_metrics.png'
     else:
         plot_file_path = os.path.splitext(file_path)[0] + '_metrics.png'
-    plt.savefig(plot_file_path, dpi=400)
+    plt.savefig(plot_file_path, dpi=600)
     plt.show()
     plt.close()
 

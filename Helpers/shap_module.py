@@ -190,7 +190,7 @@ class ShapPlots:
         shap.plots.beeswarm(self.shap_values, max_display=10, show=False, order=self.shap_values.abs.max(0))
         plt.title("SHAP Values Beeswarm Plot (Max of SHAP Values)")
         if save:
-            plt.savefig(filename, dpi=400, bbox_inches='tight')
+            plt.savefig(filename, dpi=600, bbox_inches='tight')
         else:
             plt.show()
         plt.close()
@@ -202,7 +202,7 @@ class ShapPlots:
         plt.title("Aggregated feature importance based on mean SHAP values")
         #plt.subplots_adjust(bottom=0.25)  # Adjust bottom margin to prevent x-axis clipping
         if save:
-            plt.savefig(filename, dpi=400, bbox_inches="tight")  # Save the figure
+            plt.savefig(filename, dpi=600, bbox_inches="tight")  # Save the figure
         else:
             plt.show()
         plt.close()
@@ -212,7 +212,7 @@ class ShapPlots:
         shap.plots.heatmap(self.shap_values, max_display=10, show=False)
         plt.title("Overall Feature Impact on Model Outcome")
         if save:
-            plt.savefig(filename, dpi=400, bbox_inches='tight')
+            plt.savefig(filename, dpi=600, bbox_inches='tight')
         else:
             plt.show()
         plt.close()
@@ -222,7 +222,7 @@ class ShapPlots:
         shap.plots.beeswarm(self.shap_values, show=False)
         plt.title("SHAP Values Beeswarm Plot (Mean Density of SHAP Values)")
         if save:
-            plt.savefig(filename, dpi=400, bbox_inches='tight')
+            plt.savefig(filename, dpi=600, bbox_inches='tight')
         else:
             plt.show()
         plt.close()

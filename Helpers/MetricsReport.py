@@ -74,7 +74,7 @@ def summary_results_excel(results, file:str, conf_matrix_name:str):
         plt.figure(figsize=(12, 8))
         sns.heatmap(cm_array, annot=True, fmt=".2f", cmap="Reds", xticklabels=['Predicted Positive', 'Predicted Negative'], yticklabels=['Actual Positive', 'Actual Negative'])
         plt.title(f'{model} Mean Confusion Matrix')
-        plt.savefig(os.path.join(path_conf, f"{model}_{conf_matrix_name}_confusion_matrix.png"))
+        plt.savefig(os.path.join(path_conf, f"{model}_{conf_matrix_name}_confusion_matrix.png"), dpi=1000)
         plt.close()
     df_summary = pd.DataFrame(summary_results).T
     df_summary.to_excel(os.path.join("Materials",f"{file}.xlsx"))
@@ -119,7 +119,7 @@ def external_summary(results, file:str, conf_matrix_name:str):
         plt.figure(figsize=(12, 8))
         sns.heatmap(cm_array, annot=True, fmt=".2f", cmap="Reds", xticklabels=['Predicted Positive', 'Predicted Negative'], yticklabels=['Actual Positive', 'Actual Negative'])
         plt.title(f'{model} Confusion Matrix')
-        plt.savefig(os.path.join(path_conf, f"{model}_{conf_matrix_name}_confusion_matrix.png"))
+        plt.savefig(os.path.join(path_conf, f"{model}_{conf_matrix_name}_confusion_matrix.png"), dpi=1000)
         plt.close()
 
     # Convert summary results to DataFrame

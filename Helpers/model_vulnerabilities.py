@@ -67,7 +67,7 @@ class VulnerabilityDetection:
 
 
 def execute_vulnerabilities_detection(df_test: pd.DataFrame):
-    READ_FOLDER = "../Materials"
+    READ_FOLDER = "./Materials"
     Models_paths = os.path.join(READ_FOLDER, "Models")
     models = {}
     for model in os.listdir(Models_paths):
