@@ -13,3 +13,13 @@ tests
 __main__.py
 .vscode
 .github
+.gitignore
+dockerfile_init
+app_init.py
+.env
+docker-compose.yml
+README.md
+LICENCE
+templates_init
+Materials
+Guide

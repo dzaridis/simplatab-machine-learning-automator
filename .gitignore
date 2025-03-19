@@ -8,7 +8,10 @@ radiomics_setup.py
 *.so
 .vscode
 docker-compose.yml
-
+.dockerignore
+.github
+.devcontainer
+.env
 
 # Folders
 Feature Selection.txt

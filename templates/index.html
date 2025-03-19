@@ -1,179 +1,43 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Welcome to Simplatab</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Comic+Neue:400,700&display=swap">
+    <title>ML Pipeline Application</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Comic Neue', cursive;
-            font-size: 1.25em; /* Increased font size */
-            background-color: #f5f5f5;
-            color: #333;
-        }
-        .form-check-label {
-            margin-left: 10px;
-        }
-        .models-section {
-            text-align: justify; /* Justify text for machine learning models */
-        }
-        .models-section h2 {
-            text-align: center; /* Center the title */
-        }
-        .high-contrast {
-            background-color: #000;
-            color: #fff;
-            font-size: 2em;
-        }
-        .high-contrast .form-control, 
-        .high-contrast .form-check-label {
-            background-color: #000;
-            color: #fff;
-            font-size: 2em;
-        }
-        .high-contrast .btn-primary {
-            background-color: #fff;
-            color: #000;
-            font-size: 2em;
-        }
+        body { padding-top: 20px; }
+        .container { max-width: 800px; }
     </style>
-    <script>
-        function toggleHighContrast() {
-            document.body.classList.toggle('high-contrast');
-        }
-
-        function toggleAllModels(checked) {
-            const checkboxes = document.querySelectorAll('.model-checkbox');
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = checked;
-            });
-        }
-
-        function toggleFacetRequirement() {
-            const biasAssess = document.getElementById('bias_assess').value;
-            const facetField = document.getElementById('facet');
-            if (biasAssess === 'true') {
-                facetField.setAttribute('required', 'true');
-            } else {
-                facetField.removeAttribute('required');
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            document.getElementById('bias_assess').addEventListener('change', toggleFacetRequirement);
-            toggleFacetRequirement();  // Initial check
-        });
-    </script>
 </head>
-<body role="main">
-<div class="container text-center">
-    <button type="button" class="btn btn-secondary mb-3" onclick="toggleHighContrast()">Vision Impairment Mode</button>
-    <h1>Welcome to Simplatab</h1>
-    <img src="{{ url_for('static', filename='images_materials/MLPipeline.png') }}" alt="Machine Learning Pipeline Diagram" class="img-fluid" aria-label="Machine Learning Pipeline Diagram">
-    <form action="/submit" method="post" aria-labelledby="formTitle">
-        <h2 id="formTitle">Data Bias Detection</h2>
-        <div class="form-group">
-            <label for="bias_assess">Do you want to perform Bias Detection on the Train and Testing Data?</label>
-            <select class="form-control" id="bias_assess" name="bias_assess" aria-describedby="biasHelp">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-            <small id="biasHelp" class="form-text text-muted">Select whether to perform bias detection on your dataset.</small>
-        </div>
-        <div class="form-group">
-            <label for="facet">Select Column to Check Bias in respect to the Target Class:</label>
-            <select class="form-control" id="facet" name="facet">
-                {% for column in columns %}
-                <option value="{{ column }}">{{ column }}</option>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Machine Learning Pipeline</h1>
+        
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-danger">{{ message }}</div>
                 {% endfor %}
-                <option value="None">None</option>
-            </select>
-            <small id="FacetHelp" class="form-text text-muted">Select the column with categorical values that you want to assess for data bias in respect to the positive class.</small>
+            {% endif %}
+        {% endwith %}
+        
+        <div class="card">
+            <div class="card-header">
+                Upload Files
+            </div>
+            <div class="card-body">
+                <form action="/upload" method="post" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="train_file" class="form-label">Train.csv:</label>
+                        <input type="file" class="form-control" id="train_file" name="train_file" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="test_file" class="form-label">Test.csv:</label>
+                        <input type="file" class="form-control" id="test_file" name="test_file" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Upload and Continue</button>
+                </form>
+            </div>
         </div>
-        <h2>Hyperparameters Selection</h2>
-        <div class="form-group">
-            <label for="number_of_k_folds">Number of K-Folds:</label>
-            <input type="number" class="form-control" id="number_of_k_folds" name="number_of_k_folds" required aria-required="true">
-            <small id="kfold" class="form-text text-muted">Select the number of k-fold you wish to perform for the internal validation on the Train.csv file. Typical values 5-10.</small>
-        </div>
-        <div class="form-group">
-            <label for="apply_grid_search">Apply Grid Search:</label>
-            <select class="form-control" id="apply_grid_search" name="apply_grid_search">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-            <small id="grid" class="form-text text-muted">Select whether to perform grid search meaning that a hyperparameter selection will be made on the models</small>
-            <small id="grid1" class="form-text text-muted">This will increase the accuracy of the models but is more time-consuming</small>
-        </div>
-        <div class="form-group">
-            <label for="randomized">Randomized:</label>
-            <select class="form-control" id="randomized" name="randomized">
-                <option value="true">True</option>
-                <option value="false">False</option>
-            </select>
-            <small id="randomized" class="form-text text-muted">If you set this true a randomized Hyperparameter tuning will be performed else an exhaustive will be set(much more time-consuming).</small>
-            <small id="randomized1" class="form-text text-muted">Optimal to set as true (radnomized)</small>
-                
-        </div>
-        <div class="form-group">
-            <label for="correlation_limit">Correlation Limit:</label>
-            <input type="number" step="0.01" class="form-control" id="correlation_limit" name="correlation_limit" required aria-required="true">
-            <small id="cor" class="form-text text-muted">Correlated features above that value will be excluded. typical values 0.7-0.9. Value range between 0-1.</small>
-        </div>
-        <div class="form-group">
-            <label for="metric_for_threshold_optimization">Metric For Threshold Optimization:</label>
-            <select class="form-control" id="metric_for_threshold_optimization" name="metric_for_threshold_optimization">
-                <option value="Specificity">Specificity</option>
-                <option value="Sensitivity">Sensitivity</option>
-                <option value="AUC">AUC</option>
-                <option value="F-score">F-score</option>
-                <option value="Accuracy">Accuracy</option>
-                <option value="Balanced Accuracy">Balanced Accuracy</option>
-            </select>
-            <small id="metric" class="form-text text-muted">The models will tune the threshold on that metric.</small>
-            <small id="metric1" class="form-text text-muted">For a Balanced performance choose Balanced Accuracy.</small> 
-            <small id="metric2" class="form-text text-muted">For a more conservative approach choose Specificity.</small>
-            <small id="metric3" class="form-text text-muted">If you wish a model to be more sensitive choose Sensitivity.</small>
-        </div>
-        <div class="models-section" aria-labelledby="modelsTitle">
-            <h2 id="modelsTitle">Machine Learning Models</h2>
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="toggle_all" onclick="toggleAllModels(this.checked)">
-                <label class="form-check-label" for="toggle_all">Enable/Disable All</label>
-            </div>
-            <div class="form-check">
-                <input class="form-check-input model-checkbox" type="checkbox" id="logistic_regression" name="logistic_regression" value="true">
-                <label class="form-check-label" for="logistic_regression">Logistic Regression</label>
-            </div>
-            <div class="form-check">
-                <input class="form-check-input model-checkbox" type="checkbox" id="support_vector_machines" name="support_vector_machines" value="true">
-                <label class="form-check-label" for="support_vector_machines">Support Vector Machines</label>
-            </div>
-            <div class="form-check">
-                <input class="form-check-input model-checkbox" type="checkbox" id="random_forest" name="random_forest" value="true">
-                <label class="form-check-label" for="random_forest">Random Forest</label>
-            </div>
-            <div class="form-check">
-                <input class="form-check-input model-checkbox" type="checkbox" id="stochastic_gradient_descent" name="stochastic_gradient_descent" value="true">
-                <label class="form-check-label" for="stochastic_gradient_descent">Stochastic Gradient Descent</label>
-            </div>
-            <div class="form-check">
-                <input class="form-check-input model-checkbox" type="checkbox" id="multi_layer_neural_network" name="multi_layer_neural_network" value="true">
-                <label class="form-check-label" for="multi_layer_neural_network">Multi-Layer Neural Network</label>
-            </div>
-            <div class="form-check">
-                <input class="form-check-input model-checkbox" type="checkbox" id="decision_trees" name="decision_trees" value="true">
-                <label class="form-check-label" for="decision_trees">Decision Trees</label>
-            </div>
-            <div class="form-check">
-                <input class="form-check-input model-checkbox" type="checkbox" id="xgboost" name="xgboost" value="true">
-                <label class="form-check-label" for="xgboost">XGBoost</label>
-            </div>
-            <small id="Models" class="form-text text-muted">Please check the models you wish to train.</small>
-        </div>
-        <button type="submit" class="btn btn-primary">Submit</button>
-    </form>
-</div>
+    </div>
 </body>
 </html>

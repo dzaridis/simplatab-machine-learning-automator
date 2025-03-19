@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ML Pipeline Parameters</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding-top: 20px; }
+        .container { max-width: 800px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mb-4">Machine Learning Parameters</h1>
+        
+        <div class="card">
+            <div class="card-header">
+                Configure Parameters
+            </div>
+            <div class="card-body">
+                <form action="/parameters" method="post">
+                    <div class="mb-3">
+                        <label for="bias_assessment" class="form-label">Enable Bias Assessment:</label>
+                        <select class="form-select" id="bias_assessment" name="bias_assessment">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="feature" class="form-label">Feature for Bias Assessment:</label>
+                        <input type="text" class="form-control" id="feature" name="feature" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="k_folds" class="form-label">Number of K-Folds:</label>
+                        <input type="number" class="form-control" id="k_folds" name="k_folds" value="5" min="2" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="grid_search" class="form-label">Enable Grid Search:</label>
+                        <select class="form-select" id="grid_search" name="grid_search">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="grid_search_type" class="form-label">Grid Search Type:</label>
+                        <select class="form-select" id="grid_search_type" name="grid_search_type">
+                            <option value="randomized">Randomized</option>
+                            <option value="exhaustive">Exhaustive</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="correlation_limit" class="form-label">Correlation Limit:</label>
+                        <input type="number" class="form-control" id="correlation_limit" name="correlation_limit" value="0.7" step="0.1" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="optimization_metric" class="form-label">Metric for Threshold Optimization:</label>
+                        <select class="form-select" id="optimization_metric" name="optimization_metric">
+                            <option value="Specificity">Specificity</option>
+                            <option value="Sensitivity">Sensitivity</option>
+                            <option value="AUC">AUC</option>
+                            <option value="F-score">F-score</option>
+                            <option value="Accuracy">Accuracy</option>
+                            <option value="Balanced Accuracy">Balanced Accuracy</option>
+                        </select>
+                    </div>
+                    
+                    <h4 class="mt-4">Machine Learning Models:</h4>
+                    
+                    <div class="mb-3">
+                        <label for="logistic_regression" class="form-label">Logistic Regression:</label>
+                        <select class="form-select" id="logistic_regression" name="logistic_regression">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="svm" class="form-label">Support Vector Machines:</label>
+                        <select class="form-select" id="svm" name="svm">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="random_forest" class="form-label">Random Forest:</label>
+                        <select class="form-select" id="random_forest" name="random_forest">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="sgd" class="form-label">Stochastic Gradient Descent:</label>
+                        <select class="form-select" id="sgd" name="sgd">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="neural_network" class="form-label">Multi-Layer Neural Network:</label>
+                        <select class="form-select" id="neural_network" name="neural_network">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="decision_trees" class="form-label">Decision Trees:</label>
+                        <select class="form-select" id="decision_trees" name="decision_trees">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="xgboost" class="form-label">XGBoost:</label>
+                        <select class="form-select" id="xgboost" name="xgboost">
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                        </select>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">Run Pipeline</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

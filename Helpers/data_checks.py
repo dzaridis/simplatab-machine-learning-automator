@@ -1,5 +1,7 @@
 import os
 import pandas as pd
+import uuid
+import numpy as np
 
 
 class DataChecker:
@@ -28,15 +30,24 @@ class DataChecker:
 
     @staticmethod
     def set_index_column(df, index_col="ID"):
-        
+        # Check if index_col exists
         if index_col in df.columns.to_list():
             df.set_index(index_col, inplace=True)
             return df
+        # Check if patient_id exists as fallback
         elif "patient_id" in df.columns.to_list():
             df.set_index("patient_id", inplace=True)
             return df
+        # Create a new ID column with random unique values
         else:
-            raise ValueError(f"Neither '{index_col}' nor 'patient_id' is present in the dataframe.")
+            print(f"Creating new '{index_col}' column with unique identifiers")
+            # Generate random unique IDs (using UUID for guaranteed uniqueness)
+            random_ids = [str(uuid.uuid4())[:8] for _ in range(len(df))]
+            # Add the new column to the dataframe
+            df[index_col] = random_ids
+            # Set it as index
+            df.set_index(index_col, inplace=True)
+            return df
         
         
     @staticmethod

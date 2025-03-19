@@ -4,104 +4,32 @@
 ## Overview
 Simplatab is a comprehensive machine learning pipeline designed to automate the process of data bias detection, training, evaluation, and validatiion of typical ML classification models bundled with XAI shap analysis. It provides a robust framework for bias detection, feature selection, preprocessing, hyperparameter tuning, model evaluation, and XAI analysis ensuring efficient and accurate model performance.
 
-## Contents
-- [Context](#context)
-- [Requirements](#requirements)
-- [Desktop EXE app](#Run-as-Desktop-app)
-- [Docker Run](#Run-as-Docker-Image)
-- [Python App](#Run-as-Python-API)
-- [Data Requirements](#requirements-for-the-Data)
-- [Inputs](#inputs)
-- [Outputs](#outputs)
-- [Main Advantages](#main-advantages)
-- [Key Concepts](#key-concepts)
-- [Feature Selection](#feature-selection)
-- [Preprocessing](#preprocessing)
-- [Hyperparameter Tuning & Training](#hyperparameter-tuning--training)
-- [Evaluation](#evaluation)
-- [Testing on the External Set](#testing-on-the-external-set)
 
 ## Context
 Simplatab framework runs a complete Machine Learning Pipeline from **Data Bias assessment** to **model train** and **evaluation** and **XAI analysis** with Shap, for a variety of selectable models.
 Please navigate to the [Examples Folder](Example) where examplars Train.csv and Test.csv are given along with the outcomes after the execution of the tool
 
-## Requirements
-- For the **Desktop app** just follow the instructions on the next section to install it and  run it.  
-Sole requirement is to have Docker Desktop installed on you system and open it before running the Simplatab Framework
-- **Python 3.x** for the Python API
-- **Docker (for Docker version)** for the Docker API and the .EXE
-- **Required Python Libraries**: `scikit-learn`, `pandas`, `numpy`, `matplotlib`, `xgboost`, `shap`, `featurewiz`
+## Quickstart  
+1. Clone the Repository
 
-## Run as Desktop app
-Download the Desktop app from [here](Simplatab-Setup-1.0.0.exe). Just press the View Raw and it will be downloaded
-1. Run the .Exe to install it
-2. The Executable Application (Desktop App) has the following frontend
-![ExeFrontEnd](static/images_materials/ExeImage.png)
-3. Open Docker Desktop  
-IMPORTANT NOTE. You need to have docker desktop installed on your PC    
-Download it from here   
-[Docker](https://www.docker.com/products/docker-desktop/)
-
-There you need to define input folder with the data (Read [Data Requirements](#requirements-for-the-Data)) and the output folder which will be empty  
-4. When the App runs please select the input and output folders and press the "Run the tool" button    
-5. Wait a few minutes to download the docker image (If you open the Docker Desktop you should see a new image as dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion)  
-6. From there you will be redirected to a web browser where a page will open to fill in several parameters such as model selection, to run data bias detection etc.  
-7. When you press the submit button the pipeline already runs. After a while you should see on the output folder you specified before the outcomes of the framework
-8. You can close the HTTP page ("Pipeline Status") and just chill & wait for the results to be presented at the output folder you specified before
-9. When it finishes just close the App and Docker
-
-## Run as Docker Image
-You can pull Directly the Docker Image as   
 ```bash
-docker pull dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion
+git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
+cd simplatab-machine-learning-automator
 ```
-and run the docker image as  
+---
+2. Build the Docker Image
 ```bash
-sudo docker run -p 5000:5000 -v /absolute_path/to/your/input_data:/input_data  
-                -v /absolute_path/to/your/Empty/Folder/For_the/outcomes/to_be/stored:/Materials  
-                dimzaridis/simplatab-machine-learning-automator:1.0.0-TestVersion (or latest)
+docker build -t stv2:1.0 .
 ```
-When the docker is started go to 
+---
+3. Run the Docker Image, open browser (Chrome, Mozilla), go to ```http://localhost:7102```  
 ```bash
-localhost:5000
-```
-open a browser (Mozilla/Chrome) and type the above url
-
-A page like the following should be open. There configure what are the elements you desire to run.  
-For Instance if you want to perform Bias assessment, How many folds to run for the internal k-fold cross-val
-and what models you wish to run
-
-![Simplatab](static/images_materials/s1.jpg)
-![Interface](static/images_materials/s2.jpg)
-
-## Run as Python API
-1. Clone the repository to the desired folder  
-```bash
-git clone https://github.com/dzaridis/SIMPLATAB.git  
-```
-2. Place your Train.csv and Test.csv into a folder  
-
-3. Create a "Materials"folder in the repository workspace  
-
-4. Install the requirements  
-```bash
-pip install -r requirements
-```
-5. Run the python API
-```bash
-python __main__.py 
+docker run -p 7102:5000 stv2:1.0
 ```
 
-6. An interactive window to select you folders will be opened. Select input folder and the "Materials" folder you previously created as the output folder  
-```bash
-python __main__.py 
-```
 
-7. Follow the steps in the interactive session to fill in the parameters such as k-fold, grid-search (they are simple just true/false values)
 
-8. Wait for the execution to finalize
-
-### Requirements for the Data
+## Requirements for the Data
 ```bash
 1. The input folder must contain a Train.csv and a Test.csv files  
 2. The **CSVs** MUST not contain missing values  
