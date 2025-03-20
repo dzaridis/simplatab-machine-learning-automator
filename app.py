@@ -11,9 +11,20 @@ from Helpers import DBDM
 import zipfile
 import io
 import shutil
+from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 app = Flask(__name__, template_folder='templates')
-#app.secret_key = "your_secret_key_here"
+
+root_app = Flask(__name__)
+@root_app.route('/')
+def root_redirect():
+    return redirect('/automl/')
+
+app.wsgi_app = ProxyFix(app.wsgi_app)
+application = DispatcherMiddleware(root_app, {
+    '/automl': app.wsgi_app
+})
 
 # Create temporary directories for input and output
 TEMP_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_input')
@@ -66,7 +77,7 @@ def upload_files():
     test_file.save(os.path.join(TEMP_INPUT_FOLDER, 'Test.csv'))
     
     # Redirect to parameters page
-    return redirect(url_for('parameters'))
+    return redirect('/automl/parameters')
 
 @app.route('/parameters', methods=['GET', 'POST'])
 def parameters():
@@ -104,7 +115,7 @@ def parameters():
         # Run the machine learning pipeline
         run_pipeline(TEMP_INPUT_FOLDER, TEMP_OUTPUT_FOLDER, params)
         
-        return redirect(url_for('results'))
+        return redirect('/automl/results')
     
     return render_template('parameters.html')
 
@@ -210,7 +221,8 @@ def clear_files():
     os.makedirs(os.path.join(materials_dir, "Models"), exist_ok=True)
     
     # Redirect back to the results page
-    return redirect(url_for('results'))
+    return redirect('/automl/results')
+
 
 def run_pipeline(input_folder, output_folder, params):
     try:
@@ -282,5 +294,7 @@ def run_pipeline(input_folder, output_folder, params):
         print(f"Error in pipeline: {e}")
         return f"Error: {e}"
 
+
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    from werkzeug.serving import run_simple
+    run_simple('0.0.0.0', 5000, application, use_debugger=True)

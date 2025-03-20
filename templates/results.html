@@ -18,8 +18,8 @@
             <div class="card-body">
                 {% if result_files %}
                     <div class="d-flex justify-content-between mb-3">
-                        <a href="{{ url_for('download_all') }}" class="btn btn-success">Download All Files</a>
-                        <form action="{{ url_for('clear_files') }}" method="post">
+                        <a href="/automl/download_all" class="btn btn-success">Download All Files</a>
+                        <form action="/automl/clear_files" method="post">
                             <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete all files?');">Delete All Files</button>
                         </form>
                     </div>
@@ -29,7 +29,7 @@
                         {% for file in result_files %}
                             <li class="list-group-item d-flex justify-content-between align-items-center">
                                 {{ file.name }}
-                                <a href="{{ url_for('download_file', filepath=file.path) }}" class="btn btn-sm btn-primary">Download</a>
+                                <a href="/automl/download/{{ file.path }}" class="btn btn-sm btn-primary">Download</a>
                             </li>
                         {% endfor %}
                     </ul>
@@ -37,7 +37,7 @@
                     <p>No result files were generated.</p>
                 {% endif %}
                 
-                <a href="{{ url_for('index') }}" class="btn btn-primary">Start New Pipeline</a>
+                <a href="/automl/" class="btn btn-primary">Start New Pipeline</a>
             </div>
         </div>
     </div>
