@@ -50,4 +50,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator:0.7.7-TestVersion
+          tags: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator:1.0.0
