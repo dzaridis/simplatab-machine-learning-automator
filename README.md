@@ -28,7 +28,30 @@ Please navigate to the [Examples Folder](Example) where examplars Train.csv and 
 
 You can run the Machine Learning Automator using either Docker or as a standalone Python application.
 
-### Option 1: Using Docker (Recommended)
+### Option 1: Using Docker by Pulling the Image (Recommended)
+--- 
+**Just Pull the Image and run it :)**
+
+#### Prerequisites
+
+- [Docker](https://www.docker.com/products/docker-desktop) installed on your system
+
+#### Steps
+
+1. Pull the Image
+```bash
+docker pull dimzaridis/simplatab-machine-learning-automator:1.0.0
+```
+---
+2. Run the Docker Image
+```bash
+docker run -p 7111:5000 simplatab-machine-learning-automator:1.0.0
+```
+---
+4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
+
+
+### Option 2: Using Docker by Building it from repository (Recommended)
 --- 
 Using Docker is the easiest way to run the application without worrying about dependencies.
 
@@ -56,7 +79,7 @@ docker run -p 7111:5000 ml-automator
 
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
 
-### Option 2: Running as a Python Application
+### Option 3: Running as a Python Application
 ---
 #### Steps
 1. Clone the Repository
