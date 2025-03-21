@@ -97,21 +97,13 @@ simplatab\Scripts\activate
 source simplatab/bin/activate
 ```
 
-2. Create and activate a virtual environment (optional but recommended):
-```bash
-python -m venv simplatab
-# On Windows
-simplatab\Scripts\activate
-# On macOS/Linux
-source simplatab/bin/activate
-```
 
 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Create a folder named "Materials" in the project parent
+4. Create a folder named "Materials" in the project parent folder
 ```bash
 mkdir Materials
 ```
