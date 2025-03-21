@@ -17,16 +17,29 @@ class DataChecker:
 
         train = pd.read_csv(train_path)
         test = pd.read_csv(test_path)
-        
+
         return train, test
 
     @staticmethod
     def check_target_column(df, target_col="Target"):
         if target_col not in df.columns:
             raise ValueError(f"The target column '{target_col}' is not present in the dataframe.")
-        
-        if not df[target_col].isin([0, 1]).all():
-            raise ValueError(f"The target column '{target_col}' does not contain binary values 0 and 1.")
+
+        # For multiclass, we only need to check if values are numeric
+        # Not restricting to binary values anymore
+        if not pd.api.types.is_numeric_dtype(df[target_col]):
+            raise ValueError(f"The target column '{target_col}' should contain numeric values.")
+
+        # Print class information
+        unique_values = df[target_col].unique()
+        num_classes = len(unique_values)
+        print(f"Target column '{target_col}' has {num_classes} unique classes: {sorted(unique_values)}")
+
+        # Check for class imbalance
+        class_counts = df[target_col].value_counts()
+        print("Class distribution:")
+        for cls, count in class_counts.items():
+            print(f"  Class {cls}: {count} samples ({count/len(df)*100:.2f}%)")
 
     @staticmethod
     def set_index_column(df, index_col="ID"):

@@ -117,11 +117,59 @@ def parameters():
         
         return redirect('/automl/results')
     
-    return render_template('parameters.html')
+    # Check if we have multiclass data
+    is_multiclass = False
+    num_classes = 2
+    class_distribution = {}
+    
+    try:
+        # Try to load and check the training data
+        train_path = os.path.join(TEMP_INPUT_FOLDER, "Train.csv")
+        if os.path.exists(train_path):
+            train_df = pd.read_csv(train_path)
+            if 'Target' in train_df.columns:
+                unique_classes = train_df['Target'].unique()
+                num_classes = len(unique_classes)
+                is_multiclass = num_classes > 2
+                
+                # Get class distribution
+                class_counts = train_df['Target'].value_counts().to_dict()
+                total = len(train_df)
+                class_distribution = {
+                    cls: {
+                        'count': count,
+                        'percentage': round(count / total * 100, 2)
+                    } for cls, count in class_counts.items()
+                }
+    except Exception as e:
+        print(f"Error detecting multiclass: {e}")
+    
+    return render_template(
+        'parameters.html', 
+        is_multiclass=is_multiclass, 
+        num_classes=num_classes,
+        class_distribution=class_distribution
+    )
 
 @app.route('/results')
 def results():
     result_files = []
+    
+    # Detect if multiclass
+    is_multiclass = False
+    try:
+        # Check if any model files have multiclass info
+        materials_dir = os.path.join("/app", "Materials")
+        if os.path.exists(materials_dir):
+            test_results_path = os.path.join(materials_dir, "test_results.xlsx")
+            if os.path.exists(test_results_path):
+                test_results = pd.read_excel(test_results_path)
+                # Check column headers for multiclass indicators
+                if 'Number of Classes' in test_results.columns:
+                    num_classes = test_results['Number of Classes'].iloc[0]
+                    is_multiclass = num_classes > 2
+    except Exception as e:
+        print(f"Error detecting multiclass in results: {e}")
     
     # List of possible locations to check
     possible_locations = [
@@ -131,14 +179,7 @@ def results():
         TEMP_OUTPUT_FOLDER,                  # Your temp output folder
         os.path.join(TEMP_OUTPUT_FOLDER, "Materials")  # Materials in temp folder
     ]
-    
-    # Print all locations for debugging
-    print("Checking these locations for result files:")
-    for loc in possible_locations:
-        print(f" - {loc} (exists: {os.path.exists(loc)})")
-        if os.path.exists(loc):
-            print(f"   Contents: {os.listdir(loc)}")
-    
+
     # Check each location for files
     for location in possible_locations:
         if os.path.exists(location):
@@ -151,7 +192,7 @@ def results():
                         'path': os.path.join(os.path.basename(location), rel_path)
                     })
     
-    return render_template('results.html', result_files=result_files)
+    return render_template('results.html', result_files=result_files, is_multiclass=is_multiclass)
 
 @app.route('/download/<path:filepath>')
 def download_file(filepath):

@@ -11,7 +11,25 @@
 <body>
     <div class="container">
         <h1 class="mb-4">Machine Learning Parameters</h1>
-        
+        {% if is_multiclass %}
+        <div class="alert alert-info">
+            <h5>Multiclass Classification Detected</h5>
+            <p>Found {{ num_classes }} distinct classes in the target column.</p>
+            <div class="mt-2">
+                <h6>Class Distribution:</h6>
+                <ul>
+                    {% for class, stats in class_distribution.items() %}
+                    <li>Class {{ class }}: {{ stats.count }} samples ({{ stats.percentage }}%)</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <p><small>The pipeline will automatically adjust model parameters for multiclass classification.</small></p>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <p>Binary Classification Detected</p>
+        </div>
+        {% endif %}
         <div class="card">
             <div class="card-header">
                 Configure Parameters

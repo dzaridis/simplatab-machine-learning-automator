@@ -2,16 +2,43 @@
 # SIMPLATAB: **SI**mplified **M**achine **P**ipe**L**ine **A**utomator for **TAB**ular data
 ![ML Pipeline](static/images_materials/MLPipeline.png)
 ## Overview
-Simplatab is a comprehensive machine learning pipeline designed to automate the process of data bias detection, training, evaluation, and validatiion of typical ML classification models bundled with XAI shap analysis. It provides a robust framework for bias detection, feature selection, preprocessing, hyperparameter tuning, model evaluation, and XAI analysis ensuring efficient and accurate model performance.
+
+- Simplatab is a comprehensive machine learning pipeline designed to automate the process of data bias detection, training, evaluation, and validatiion of typical ML classification models bundled with XAI shap analysis. It provides a robust framework for bias detection, feature selection, preprocessing, hyperparameter tuning, model evaluation, and XAI analysis ensuring efficient and accurate model performance.
+
+- Overall, Simplatab is a comprehensive platform for automated machine learning pipelines with support for both binary and multiclass classification tasks. This tool simplifies the process of building, training, and evaluating machine learning models through an intuitive web interface.
 
 
 ## Context
+
 Simplatab framework runs a complete Machine Learning Pipeline from **Data Bias assessment** to **model train** and **evaluation** and **XAI analysis** with Shap, for a variety of selectable models.
 Please navigate to the [Examples Folder](Example) where examplars Train.csv and Test.csv are given along with the outcomes after the execution of the tool
 
-## Quickstart  
-1. Clone the Repository
 
+## Features
+
+- **Automated Machine Learning**: Train and evaluate multiple classification models simultaneously
+- **Support for Binary and Multiclass Classification**: Automatically adapts to your dataset
+- **Comprehensive Model Evaluation**: ROC curves, precision-recall curves, confusion matrices, and more
+- **Feature Importance Analysis**: SHAP-based explainability for all models
+- **Bias Detection**: Identify and assess potential biases in your datasets
+- **Model Export**: Save trained models for deployment in other applications
+
+
+## Getting Started
+
+You can run the Machine Learning Automator using either Docker or as a standalone Python application.
+
+### Option 1: Using Docker (Recommended)
+--- 
+Using Docker is the easiest way to run the application without worrying about dependencies.
+
+#### Prerequisites
+
+- [Docker](https://www.docker.com/products/docker-desktop) installed on your system
+
+#### Steps
+
+1. Clone the Repository
 ```bash
 git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
 cd simplatab-machine-learning-automator
@@ -19,34 +46,128 @@ cd simplatab-machine-learning-automator
 ---
 2. Build the Docker Image
 ```bash
-docker build -t stv2:1.0 .
+docker build -t simplatab .
 ```
 ---
-3. Run the Docker Image, open browser (Chrome, Mozilla), go to ```http://localhost:7102```  
+3. Run the Docker Image
 ```bash
-docker run -p 7102:5000 stv2:1.0
+docker run -p 7111:5000 ml-automator
 ```
 
+4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
 
-
-## Requirements for the Data
+### Option 2: Running as a Python Application
+---
+#### Steps
+1. Clone the Repository
 ```bash
-1. The input folder must contain a Train.csv and a Test.csv files  
-2. The **CSVs** MUST not contain missing values  
-3. The target column should be   
-   a. **BINARY** with values **0 and 1** for both Train and Test.csv  
-   b. it should have the name **Target**  
-4. Train.csv and Test.csv should contain a column named **"patient_id"** or **"ID"** which is the id for a given row
+git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
+cd simplatab-machine-learning-automator
 ```
-## Inputs
-- **CSV Files**: Must not contain missing values.
-  - **Train.csv**: Features and target (last column). Used for K-Fold cross-validation and threshold tuning.
-  - **Test.csv**: Features and target (last column). Used for validation of thresholds, metrics, ROC curves, and SHAP analysis.
 
-For the Docker version, place `Train.csv` and `Test.csv` in an input volume folder.
+2. Create and activate a virtual environment (optional but recommended):
+```bash
+python -m venv simplatab
+# On Windows
+simplatab\Scripts\activate
+# On macOS/Linux
+source simplatab/bin/activate
+```
+
+2. Create and activate a virtual environment (optional but recommended):
+```bash
+python -m venv simplatab
+# On Windows
+simplatab\Scripts\activate
+# On macOS/Linux
+source simplatab/bin/activate
+```
+
+3. Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+4. Create a folder named "Materials" in the project parent
+```bash
+mkdir Materials
+```
+
+5. Run API
+```bash
+python app.py
+```
+
+6. Access the web interface at ```http://localhost:5000/automl/```
+
+## Using the Machine Learning Automator
+### Dataset Format
+--- 
+**Your dataset should be prepared as follows:**
+
+File Format: CSV files named Train.csv and Test.csv
+Target Column: A column named **Target** containing:
+
+- For binary classification: Values of 0 and 1
+- For multiclass classification: Numeric class labels (0, 1, 2, etc.)
+
+
+- Features: Any number of numeric or categorical columns
+
+### Step-by-Step Usage
+---
+1. **Upload Datasets:**
+
+Start by uploading your Train.csv and Test.csv files
+The system will automatically detect if your task is binary or multiclass classification
+
+
+2. Configure Parameters:
+
+**Bias Assessment:** Enable/disable bias detection
+**Feature for Bias Assessment:** Select the feature to check for bias (Works only for categorical features, else place None)
+**Number of K-Folds:** Set stratified cross-validation folds
+**Grid Search:** Enable/disable hyperparameter optimization (If false then the randomized has no impace,If true then by selecting randomized a randomized grid search will be aplied for Hyperparameter tuning)
+**Correlation Limit:** Set threshold for feature selection (correlation matrix threshold)
+**Models:** Select which machine learning models to train
+
+
+3. **Run Pipeline:**
+
+Click "Run Pipeline" to start the automated machine learning process
+The system will perform:
+
+- Feature selection
+- Model training with cross-validation
+- Hyperparameter optimization (if enabled)
+- Model evaluation
+- SHAP analysis for model interpretability
+
+
+
+
+4. ** View Results:**
+
+Once processing is complete, you'll be redirected to the results page
+Review performance metrics, visualizations, and download trained models
+For multiclass problems, class-specific metrics and visualizations are provided
+
+
+
+## Example Datasets
+
+The repository includes example datasets for both binary and multiclass classification tasks:
+
+examples/binary/Train.csv and examples/binary/Test.csv: Binary classification example (Breast Cancer)  
+examples/multiclass/Train.csv and examples/multiclass/Test.csv: Multiclass classification example (IRIS multiclass)  
+
+- Their respective results are located in Examples\BreastCancerExample (binary)
+- Examples\IrisExample (Multiclass)
+
+---
 
 ## Outputs
-The outputs will be saved in the `Materials` folder (or a specified output volume for Docker version):
+The outputs will be saved in the `Materials` folder:
 - `ROC_CURVES.png`: ROC curves for each algorithm on the test set.
 - `Precision-Recall curves.png`:Precision-Recall curves for each algorithm on the test set.
 - `ShapFeatures` folder: A ShapFeatures folder will be created, Inside model subfolders will be created which contain 3 kind of plots  

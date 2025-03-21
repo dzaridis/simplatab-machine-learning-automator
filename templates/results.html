@@ -11,6 +11,17 @@
 <body>
     <div class="container">
         <h1 class="mb-4">Pipeline Results</h1>
+        {% if result_files and is_multiclass %}
+        <div class="alert alert-info mb-4">
+            <h5>Multiclass Results</h5>
+            <p>For multiclass classification, please check the following key files:</p>
+            <ul>
+                <li><strong>Class ROC Curves</strong>: Separate ROC curves for each class</li>
+                <li><strong>Confusion Matrices</strong>: Show performance across all classes</li>
+                <li><strong>Class-specific SHAP plots</strong>: Feature importance for each class</li>
+            </ul>
+        </div>
+        {% endif %}
         <div class="card">
             <div class="card-header">
                 Generated Files

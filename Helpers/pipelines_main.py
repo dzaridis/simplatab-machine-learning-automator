@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.linear_model import LogisticRegression
@@ -128,6 +129,106 @@ hyperparameters_models_grid = {
         "default_params": {}
     }
 }
+
+
+def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multiclass, num_classes):
+    """
+    Adjust hyperparameters for multiclass classification based on the classifier type.
+    
+    Args:
+        classifier: The classifier class (not instance)
+        hyperparameters: Dictionary of hyperparameters
+        is_multiclass: Boolean indicating if this is a multiclass problem
+        num_classes: Number of classes in the target variable
+    
+    Returns:
+        Dictionary of adjusted hyperparameters
+    """
+    adjusted_hyperparameters = hyperparameters.copy()
+    
+    if not is_multiclass:
+        # No adjustments needed for binary classification
+        return adjusted_hyperparameters
+    
+    # Adjustments for LogisticRegression
+    if classifier == LogisticRegression:
+        # For multiclass, ensure multi_class is set correctly
+        if 'multi_class' not in adjusted_hyperparameters:
+            adjusted_hyperparameters['multi_class'] = ['ovr', 'multinomial']
+        elif isinstance(adjusted_hyperparameters['multi_class'], str):
+            # If it's a fixed string, make sure it's appropriate
+            if adjusted_hyperparameters['multi_class'] not in ['ovr', 'multinomial']:
+                adjusted_hyperparameters['multi_class'] = 'ovr'
+        
+        # Some solvers don't support multinomial
+        if 'solver' in adjusted_hyperparameters:
+            if isinstance(adjusted_hyperparameters['solver'], list):
+                # If multinomial is an option, remove incompatible solvers
+                if ('multi_class' in adjusted_hyperparameters and 
+                    (adjusted_hyperparameters['multi_class'] == 'multinomial' or 
+                     'multinomial' in adjusted_hyperparameters['multi_class'])):
+                    adjusted_hyperparameters['solver'] = [s for s in adjusted_hyperparameters['solver'] 
+                                                         if s != 'liblinear']
+            elif adjusted_hyperparameters['solver'] == 'liblinear' and adjusted_hyperparameters.get('multi_class') == 'multinomial':
+                # If solver is fixed to liblinear, force 'ovr'
+                adjusted_hyperparameters['multi_class'] = 'ovr'
+    
+    # Adjustments for SVC
+    elif classifier == SVC:
+        # Ensure decision_function_shape is set to 'ovr' for multiclass
+        adjusted_hyperparameters['decision_function_shape'] = 'ovr'
+        
+        # Make sure probability is True for ROC curves and other probability-based metrics
+        adjusted_hyperparameters['probability'] = True
+    
+    # Adjustments for SGDClassifier
+    elif classifier == SGDClassifier:
+        # For multiclass, set appropriate loss functions
+        if 'loss' in adjusted_hyperparameters:
+            if isinstance(adjusted_hyperparameters['loss'], list):
+                # Keep only losses that support multiclass
+                multiclass_compatible_losses = ['log_loss', 'modified_huber', 'log']
+                adjusted_hyperparameters['loss'] = [l for l in adjusted_hyperparameters['loss'] 
+                                                  if l in multiclass_compatible_losses]
+                if not adjusted_hyperparameters['loss']:  # If empty, set default
+                    adjusted_hyperparameters['loss'] = ['log_loss']
+            elif adjusted_hyperparameters['loss'] not in ['log_loss', 'modified_huber', 'log']:
+                # If fixed and incompatible, change to a compatible option
+                adjusted_hyperparameters['loss'] = 'log_loss'
+    
+    # Adjustments for MLPClassifier
+    elif classifier == MLPClassifier:
+        # No specific adjustments needed as it automatically handles multiclass
+        pass
+    
+    # Adjustments for DecisionTreeClassifier
+    elif classifier == DecisionTreeClassifier:
+        # No specific adjustments needed as it automatically handles multiclass
+        pass
+    
+    # Adjustments for RandomForestClassifier
+    elif classifier == RandomForestClassifier:
+        # No specific adjustments needed as it automatically handles multiclass
+        # But can set class_weight to 'balanced' or 'balanced_subsample' to help with imbalanced multiclass
+        if 'class_weight' not in adjusted_hyperparameters and num_classes > 2:
+            adjusted_hyperparameters['class_weight'] = [None, 'balanced', 'balanced_subsample']
+    
+    # Adjustments for XGBClassifier
+    elif classifier == XGBClassifier:
+        # For multiclass, set objective to 'multi:softprob'
+        if 'objective' not in adjusted_hyperparameters:
+            adjusted_hyperparameters['objective'] = 'multi:softprob'
+        
+        # Set num_class parameter for multiclass
+        adjusted_hyperparameters['num_class'] = num_classes
+        
+        # Remove scale_pos_weight for multiclass as it's only for binary classification
+        if 'scale_pos_weight' in adjusted_hyperparameters:
+            del adjusted_hyperparameters['scale_pos_weight']
+    
+    return adjusted_hyperparameters
+
+
 def read_yaml(input_folder):
     global CORRELATION_LIMIT, NUMBER_OF_FOLDS, HP_TYPE, METRIC_TO_TRACK, GRID_SEARCH_ENABLING, names, classifiers, hypers
     yaml_file = os.path.join(input_folder, "machine_learning_parameters.yaml")
@@ -160,10 +261,17 @@ def read_yaml(input_folder):
                 classifiers.append(model_info["classifier"])
                 hypers.append(model_info["default_params"])
 
+
 def train_k_fold(X_train, y_train):
     log_file = './Materials/error_log.log'
     logging.basicConfig(filename=log_file, level=logging.ERROR, 
                     format='%(asctime)s:%(levelname)s:%(message)s')
+    num_classes = len(np.unique(y_train))
+    is_multiclass = num_classes > 2
+    if is_multiclass:
+        print(f"Detected multiclass classification problem with {num_classes} classes")
+    else:
+        print("Detected binary classification problem")
     k_folds = NUMBER_OF_FOLDS
     scores_storage = {}
     params_dict = {}
@@ -174,11 +282,12 @@ def train_k_fold(X_train, y_train):
     for cls, hp, nm in zip(classifiers, hypers, names):
         print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         logging.info(f"{nm} is starting")
+        adjusted_hp = adjust_hyperparameters_for_multiclass(cls, hp, is_multiclass, num_classes)
         # find optimal parameters
         pipeline = pipelines.MLPipeline(X_train, y_train, cls, hp)
         pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
         pipeline.execute_preprocessing()
-        pipeline.train_model(perform_grid_search=GRID_SEARCH_ENABLING, param_grid=hp, cv=skf, hp_type=HP_TYPE)
+        pipeline.train_model(perform_grid_search=GRID_SEARCH_ENABLING, param_grid=adjusted_hp, cv=skf, hp_type=HP_TYPE)
         ppln = pipeline.build_pipeline()
         params = pipeline.get_best_parameters()
         params_dict.update({nm:params})
@@ -194,7 +303,8 @@ def train_k_fold(X_train, y_train):
             xval = X_train.iloc[test_index,:]
             yval = y_train.iloc[test_index]
             try:
-                pipeline = pipelines.MLPipeline(xtrain, ytrain, cls, hpers)
+                fold_hpers = adjust_hyperparameters_for_multiclass(cls, hpers, is_multiclass, num_classes)
+                pipeline = pipelines.MLPipeline(xtrain, ytrain, cls, fold_hpers)
                 pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
                 pipeline.execute_preprocessing()
                 pipeline.train_model()
@@ -227,12 +337,20 @@ def train_k_fold(X_train, y_train):
             
 
 def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
+    # Detect if multiclass
+    num_classes = len(np.unique(y_train))
+    is_multiclass = num_classes > 2
+    
     pipeline_dict_inf = {}
     params_inf= {}
     scores_inf = {}
     for cls, hp, nm in zip(classifiers, hypers, names):
         print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         hpers = params_dict[nm]
+        
+        # Adjust hyperparameters for multiclass if needed
+        hpers = adjust_hyperparameters_for_multiclass(cls, hpers, is_multiclass, num_classes)
+        
         pipeline = pipelines.MLPipeline(X_train, y_train, cls, hpers)
         pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
         pipeline.execute_preprocessing()
@@ -245,13 +363,17 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
         me = behave_metrics.ModelEvaluator(ppln,X_test)
         scores = me.evaluate()["y_test"]
 
-        # Set optimal threshold as the average across Folds
-        cnt = 0
-        meas = 0
-        for fold,val in thresholds[nm].items():
-            cnt += 1
-            meas += val
-        average_threshold = meas/cnt if cnt!=0 else 0.5
+        # Set optimal threshold as the average across Folds for binary classification
+        # For multiclass, threshold isn't used in the same way
+        if is_multiclass:
+            average_threshold = 0.5  # Default value for multiclass (not actually used)
+        else:
+            cnt = 0
+            meas = 0
+            for fold,val in thresholds[nm].items():
+                cnt += 1
+                meas += val
+            average_threshold = meas/cnt if cnt!=0 else 0.5
 
         # Compute metrics on that threshold
         mr = behave_metrics.Metrics(scores, y_test)
@@ -278,6 +400,7 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     except Exception as e:
         print(f"Error here: {e}")
 
+    # Save models code remains the same
     save_path_for_models = os.path.join("./Materials", "Models")
     os.makedirs(save_path_for_models, exist_ok=True)
 
