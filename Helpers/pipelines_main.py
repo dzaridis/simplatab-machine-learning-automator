@@ -340,7 +340,8 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     # Detect if multiclass
     num_classes = len(np.unique(y_train))
     is_multiclass = num_classes > 2
-    
+    os.makedirs(os.path.join("./Materials", "ROC_Curves"), exist_ok=True)
+    roc_save = os.path.join("./Materials", "ROC_Curves")
     pipeline_dict_inf = {}
     params_inf= {}
     scores_inf = {}
@@ -395,8 +396,8 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     try:
         roc = behave_metrics.ROCCurveEvaluator(pipeline_dict_inf,X_test=X_test, y_true=y_test)
         roc.evaluate_models()
-        roc.plot_roc_curves(save_path=r"./Materials")
-        roc.plot_pr_curves(save_path=r"./Materials")
+        roc.plot_roc_curves(save_path=roc_save)
+        roc.plot_pr_curves(save_path=roc_save)
     except Exception as e:
         print(f"Error here: {e}")
 
