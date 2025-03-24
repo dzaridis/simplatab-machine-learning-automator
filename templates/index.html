@@ -6,6 +6,7 @@
     <style>
         body { padding-top: 20px; }
         .container { max-width: 800px; }
+        .example-table { font-size: 0.9em; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -36,6 +37,66 @@
                     </div>
                     <button type="submit" class="btn btn-primary">Upload and Continue</button>
                 </form>
+            </div>
+        </div>
+        
+        <div class="card mt-4">
+            <div class="card-header">
+                Input CSV Format Example
+            </div>
+            <div class="card-body">
+                <p>Your CSV files should follow this structure:</p>
+                <ul>
+                    <li>Their names <strong>MUST be "Train.csv" and "Test.csv"</strong></li>
+                    <li>The data <strong>MUST not contain missing values</strong></li>
+                    <li>Include feature columns (numerical or categorical)</li>
+                    <li>The target variable column <strong>must be named "Target"</strong></li>
+                    <li>For binary classification: <strong>Target values should be 0 or 1</strong></li>
+                    <li>For multiclass classification: <strong>Target values should be integers (0, 1, 2, etc.)</strong></li>
+                </ul>
+                
+                <div class="table-responsive example-table">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Feature_1</th>
+                                <th>Feature_2</th>
+                                <th>Feature_3</th>
+                                <th>...</th>
+                                <th>Feature_N</th>
+                                <th>Target</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>0.23</td>
+                                <td>Male</td>
+                                <td>32.5</td>
+                                <td>...</td>
+                                <td>Yes</td>
+                                <td>0</td>
+                            </tr>
+                            <tr>
+                                <td>0.89</td>
+                                <td>Female</td>
+                                <td>45.2</td>
+                                <td>...</td>
+                                <td>No</td>
+                                <td>1</td>
+                            </tr>
+                            <tr>
+                                <td>0.65</td>
+                                <td>Male</td>
+                                <td>28.7</td>
+                                <td>...</td>
+                                <td>Yes</td>
+                                <td>2</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <p class="mt-3 text-muted small">Note: The system will automatically detect if your problem is binary or multiclass based on the number of unique values in the Target column.</p>
             </div>
         </div>
     </div>
