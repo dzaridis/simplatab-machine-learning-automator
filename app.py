@@ -106,6 +106,10 @@ def parameters():
         params["Machine Learning Models"]["Multi-Layer Neural Network"] = request.form.get('neural_network') == 'true'
         params["Machine Learning Models"]["Decision Trees"] = request.form.get('decision_trees') == 'true'
         params["Machine Learning Models"]["XGBoost"] = request.form.get('xgboost') == 'true'
+        params["Machine Learning Models"]["TabPFNv2"] = request.form.get('tabpfn') == 'true'
+        params["Machine Learning Models"]["TabTransformer"] = request.form.get('tabtransformer') == 'true'
+        params["Machine Learning Models"]["TabR"] = request.form.get('tabr') == 'true'
+        params["Machine Learning Models"]["TabICL"] = request.form.get('tabicl') == 'true'
         
         # Save YAML file
         yaml_path = os.path.join(TEMP_INPUT_FOLDER, "machine_learning_parameters.yaml")

@@ -7,11 +7,19 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
 
-# Copy the current directory contents into the container
-COPY . .
+# Install the CPU build of PyTorch (same version as requirements.txt), avoiding the CUDA libraries
+RUN pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
 
 # Install Flask and other necessary packages
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Download the pretrained TabPFNv2 and TabICL weights into the image (otherwise fetched on first use)
+COPY Helpers/dl_classifiers.py Helpers/dl_classifiers.py
+RUN python Helpers/dl_classifiers.py || echo "WARNING: pretrained weights not downloaded, they will be downloaded on first use"
+
+# Copy the current directory contents into the container
+COPY . .
 
 # Create Materials directory inside the container
 RUN mkdir -p ./Materials

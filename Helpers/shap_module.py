@@ -10,14 +10,23 @@ from xgboost import XGBClassifier
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import SGDClassifier, LogisticRegression
+import scipy.sparse as sp
 import matplotlib.pyplot as plt
 import seaborn as sns
+from Helpers.dl_classifiers import DEEP_LEARNING_CLASSIFIERS
 
 
 class ShapValues:
     """Calculate SHAP values for a given model and dataset
     Extended to handle multiclass classification
     """
+    # Kernel SHAP budget for the deep learning classifiers, whose predictions are expensive
+    # on CPU (e.g. TabPFN/TabICL): each explained sample costs
+    # DL_KERNEL_NSAMPLES * DL_BACKGROUND_SIZE predictions.
+    DL_EXPLAINED_SAMPLES = 14
+    DL_BACKGROUND_SIZE = 5
+    DL_KERNEL_NSAMPLES = 150
+
     def __init__(self, ppln:Pipeline) -> None:
         """ Initialize the ShapValues object with a given pipeline
 
@@ -32,6 +41,8 @@ class ShapValues:
             self.MODEL_TYPE = 2
         elif isinstance(self.model, LogisticRegression):
             self.MODEL_TYPE = 3
+        elif isinstance(self.model, DEEP_LEARNING_CLASSIFIERS):
+            self.MODEL_TYPE = 4
         else:
             self.MODEL_TYPE = 0
         
@@ -185,7 +196,22 @@ class ShapValues:
             explainer = shap.LinearExplainer(self.model, transformed_data)
             shap_values = explainer(transformed_data)
             shap_values.feature_names = columns_names
-            
+
+        elif self.MODEL_TYPE == 4:  # Deep learning models: Kernel explainer on a bounded budget
+            x_val, y_val = self.check_size(x_val, y_val, sample_size=self.DL_EXPLAINED_SAMPLES)
+            transformed_data, columns_names = self.__data_transform(self.ppln, x_val, y_val)
+            if sp.issparse(transformed_data):
+                transformed_data = transformed_data.toarray()
+            background = shap.sample(transformed_data, self.DL_BACKGROUND_SIZE, random_state=0)
+            explainer = shap.KernelExplainer(self.model.predict_proba, background)
+            values = explainer.shap_values(transformed_data, nsamples=self.DL_KERNEL_NSAMPLES, silent=True)
+            values = np.stack(values, axis=-1) if isinstance(values, list) else values
+            base_values = np.tile(explainer.expected_value, (values.shape[0], 1))
+            if values.shape[-1] == 2:  # binary: explain the positive class
+                values, base_values = values[..., 1], base_values[:, 1]
+            shap_values = shap.Explanation(values, base_values=base_values, data=transformed_data,
+                                           feature_names=columns_names)
+
         else:  # Kernel explainer for other models
             x_val, y_val = self.check_size(x_val, y_val, sample_size=14)  # Use fewer samples for kernel explainer
             transformed_data, columns_names = self.__data_transform(self.ppln, x_val, y_val)
