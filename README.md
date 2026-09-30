@@ -82,52 +82,57 @@ Everything is written to the `Materials` folder, shown on the results page and d
 | Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity) | `<K>_fold_results.xlsx` (mean ± SD), `test_results.xlsx` |
 | Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/` |
 | Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images) |
-| Trained models | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images) |
+| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images) |
 | Image predictions and classes | `Predictions/<network>_test_predictions.csv`, `classes.csv` |
 
 Each run replaces the results of the previous one.
 
 ## Using the trained models
 
-The results page shows ready-to-copy code for your best model. The models need the Simplatab code and library
-versions that trained them:
-```bash
-git clone --branch 1.1.2 https://github.com/dzaridis/simplatab-machine-learning-automator.git   # the version shown in the app
-cd simplatab-machine-learning-automator
-pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
-unzip ~/Downloads/pipeline_results.zip -d Materials
-```
+The models run **without Simplatab**, with pip packages only. The results page shows ready-to-copy code for
+your best model, adapted to your data (identifier column, image formats, CT window).
 
-**Tabular**: the `.pkl` file is the whole pipeline (feature selection, preprocessing, classifier).
+**Tabular**: each `.pkl` file is a scikit-learn pipeline (feature selection, preprocessing, classifier).
+```bash
+pip install numpy==1.23.5 pandas==2.0.3 scikit-learn==1.3.1 xgboost==1.7.6   # deep learning models: + torch==2.8.0 cloudpickle==3.1.2 (and tabpfn / tabicl)
+```
 ```python
 import json, pickle
 import pandas as pd
 
-data = pd.read_csv("new_samples.csv")                    # same columns as Train.csv
-if "ID" in data.columns:
-    data = data.set_index("ID")                          # identifier, not a feature
-data = data.dropna().drop(columns=["Target"], errors="ignore")
-
-with open("Materials/Models/XGBoost_pipeline.pkl", "rb") as f:
-    model = pickle.load(f)
-with open("Materials/Models/thresholds.json") as f:
-    threshold = json.load(f)["XGBoost"]                  # None for multiclass
-
-probabilities = model.predict_proba(data)
-predictions = (probabilities[:, 1] > threshold).astype(int) if threshold is not None else probabilities.argmax(1)
+model = pickle.load(open("Materials/Models/XGBoost_pipeline.pkl", "rb"))
+threshold = json.load(open("Materials/Models/thresholds.json"))["XGBoost"]   # binary problems
+data = pd.read_csv("new_samples.csv", index_col="ID").dropna()               # columns of Train.csv
+p = model.predict_proba(data)
+print((p[:, 1] > threshold).astype(int))                                    # multiclass: p.argmax(1)
 ```
 
-**Images**: the `.pt` file holds the network, its classes, threshold and image preprocessing.
+**Images**: each `.pt` file is a TorchScript model (normalisation, network, softmax) for 224 × 224 RGB images
+in [0, 1], with its classes and decision threshold.
+```bash
+pip install torch numpy pillow   # + pydicom==2.4.4 pylibjpeg for DICOM, nibabel for NIfTI
+```
 ```python
-from Helpers.image.inference import load_model, predict
+import json
+import numpy as np, torch
+from PIL import Image
 
-model, info = load_model("Materials/Models/DINOv2-Small.pt")
-for row in predict(model, info, ["scan_001.dcm", "scan_002.nii.gz", "scan_003.png"]):
-    print(row["file"], row["predicted_class"], row["probabilities"])
+meta = {"simplatab.json": ""}
+model = torch.jit.load("Materials/Models/DINOv2-Small.pt", _extra_files=meta)
+info = json.loads(meta["simplatab.json"])   # classes, threshold, preprocessing
+
+image = Image.open("scan.png").convert("RGB")
+side = max(image.size)                       # pad to a square, then resize as in training
+square = Image.new("RGB", (side, side))
+square.paste(image, ((side - image.width) // 2, (side - image.height) // 2))
+square = square.resize((256, 256), Image.BILINEAR).resize((224, 224), Image.BILINEAR)
+x = torch.from_numpy(np.asarray(square, dtype=np.float32) / 255).permute(2, 0, 1)[None]
+p = model(x)[0].detach().numpy()
+k = int(p[1] > info["threshold"]) if info["threshold"] is not None else int(p.argmax())
+print(info["classes"][k], p)
 ```
-Run the code from the cloned folder (it imports the `Helpers` package), or without installing anything in the
-Docker image: `docker run --rm -v "$PWD:/work" -w /work -e PYTHONPATH=/app dimzaridis/simplatab-machine-learning-automator:1.1.2 python predict.py`.
+The code of the results page also reads DICOM (modality LUT, CT or DICOM window, multi-frame) and NIfTI files
+exactly as for training.
 
 ## Notes on the deep learning models
 
