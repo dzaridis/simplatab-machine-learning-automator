@@ -277,6 +277,11 @@ a { text-underline-offset: 2px; }
 .phase-list li.done { color: var(--sb-good-text); }
 .phase-list li.active { background: var(--sb-brand-soft); color: var(--sb-brand); font-weight: 650; }
 .log-console { background: #0f1115; color: #d6d9df; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .78rem; line-height: 1.5; border-radius: .75rem; padding: 1rem; max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; }
+/* Code snippets: language bar with a copy button, unwrapped code that scrolls sideways */
+.code-block { border-radius: .75rem; overflow: hidden; background: #0f1115; }
+.code-block-bar { display: flex; justify-content: space-between; align-items: center; padding: .45rem 1rem; font-size: .75rem; font-weight: 600; color: #aab0bb; background: #1a1d24; }
+.code-block-bar .btn { font-size: .75rem; text-decoration: none; }
+.code-block .log-console { border-radius: 0; max-height: none; white-space: pre; word-break: normal; overflow-x: auto; }
 .status-cell { display: inline-flex; align-items: center; gap: .4rem; font-size: .88rem; font-weight: 500; }
 .status-cell.pending { color: var(--sb-muted); }
 .status-cell.running { color: var(--sb-brand); }

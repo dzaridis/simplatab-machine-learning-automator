@@ -1,0 +1,122 @@
+{# Code showing how to use the trained models outside Simplatab: installation, data loading,
+   preprocessing, model loading and inference. Rendered on the results page with the file of a
+   trained model and the Simplatab version that trained it (the models need the same code). #}
+
+{% macro code_block(id, language, code) %}
+<div class="code-block">
+    <div class="code-block-bar">
+        <span>{{ language }}</span>
+        <button type="button" class="btn btn-sm btn-link text-reset p-0" data-copy-target="{{ id }}">
+            <i class="bi bi-clipboard me-1" aria-hidden="true"></i><span>Copy</span>
+        </button>
+    </div>
+    <pre class="log-console mb-0" id="{{ id }}"><code>{{ code }}</code></pre>
+</div>
+{% endmacro %}
+
+{% macro install_code(version) -%}
+{%- set ref = version if version[:1].isdigit() else 'main' -%}
+# Python 3.9, with the code of the Simplatab version that trained the models ({{ ref }})
+git clone --branch {{ ref }} https://github.com/dzaridis/simplatab-machine-learning-automator.git
+cd simplatab-machine-learning-automator
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt   # the exact library versions the models were trained with
+unzip ~/Downloads/pipeline_results.zip -d Materials   # the results, with the models in Materials/Models/
+{%- endmacro %}
+
+{% macro tabular_code(model, thresholds) -%}
+import json
+import pickle
+
+import pandas as pd
+
+# 1. Data: new samples with the same columns as Train.csv (Target is not needed)
+data = pd.read_csv("new_samples.csv")
+
+# 2. Preprocessing, as before training: identifier as index, rows with missing values removed
+for id_column in ("ID", "patient_id"):
+    if id_column in data.columns:
+        data = data.set_index(id_column)
+        break
+data = data.dropna().drop(columns=["Target"], errors="ignore")
+
+# 3. Model: the whole pipeline (feature selection, scaling/encoding, classifier)
+with open("Materials/Models/{{ model }}_pipeline.pkl", "rb") as f:
+    model = pickle.load(f)
+{% if thresholds -%}
+with open("Materials/Models/thresholds.json") as f:
+    threshold = json.load(f)["{{ model }}"]   # tuned on the K-fold validation sets; None if multiclass
+{%- else -%}
+threshold = 0.5   # binary problems: probability above which class 1 is predicted
+{%- endif %}
+
+# 4. Inference
+probabilities = model.predict_proba(data)
+if probabilities.shape[1] == 2 and threshold is not None:
+    predictions = (probabilities[:, 1] > threshold).astype(int)
+else:
+    predictions = probabilities.argmax(axis=1)
+results = pd.DataFrame(probabilities, index=data.index).add_prefix("probability_")
+results.insert(0, "prediction", predictions)
+print(results)
+{%- endmacro %}
+
+{% macro image_code(model_file) -%}
+import glob
+
+import torch
+
+from Helpers.image import io
+from Helpers.image.inference import load_model
+from Helpers.image.models import normalization
+from Helpers.image.training import build_transform
+
+# 1. Model: network, classes, decision threshold and the preprocessing used in training
+model, info = load_model("Materials/Models/{{ model_file }}")
+prep = info["preprocessing"]
+transform = build_transform(*normalization(model.backbone))   # resize to 224, normalise
+
+# 2. Data: DICOM, NIfTI, PNG, JPEG, BMP or TIFF files
+for path in sorted(glob.glob("new_images/*")):
+    # 3. Preprocessing, as for the training images: 8-bit conversion (CT window, volume slice),
+    #    square padding, resizing
+    image = io.load_image(path, window=prep["window"], volume=prep["volume"])
+    image = io.letterbox(image, prep["cache_size"]).convert("RGB")
+    x = transform(image).unsqueeze(0)
+
+    # 4. Inference
+    with torch.no_grad():
+        probabilities = torch.softmax(model(x), dim=1)[0].numpy()
+    if len(info["classes"]) == 2 and info["threshold"] is not None:
+        predicted = int(probabilities[1] > info["threshold"])
+    else:
+        predicted = int(probabilities.argmax())
+    print(path, info["classes"][predicted], {c: round(float(p), 3) for c, p in zip(info["classes"], probabilities)})
+{%- endmacro %}
+
+{% macro usage_card(is_image, models, best, version, thresholds) %}
+{% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
+<div class="card mb-4" id="use-models">
+    <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Use a trained model on new data</div>
+    <div class="p-3">
+        <p class="small-muted mt-0">
+            {% if is_image %}Each <code>.pt</code> file holds a network trained on all of Train.zip, with its classes, decision threshold and image preprocessing.
+            {% else %}Each <code>.pkl</code> file holds the full pipeline trained on all of Train.csv: feature selection, preprocessing and classifier.{% endif %}
+            Loading it needs the Simplatab code and library versions that trained it, installed below. The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best model on the test set{% endif %}; replace the file name for another model.
+        </p>
+        <h3 class="h6 fw-bold">1. Install</h3>
+        {{ code_block("code-install", "Shell", install_code(version)) }}
+        <h3 class="h6 fw-bold mt-3">2. Predict <span class="small-muted fw-normal">(save as <code>predict.py</code> and run <code>python predict.py</code>)</span></h3>
+        {% if is_image %}
+        {{ code_block("code-predict", "Python", image_code(chosen.path.split('/')[-1])) }}
+        {% else %}
+        {{ code_block("code-predict", "Python", tabular_code(chosen.name, thresholds)) }}
+        {% endif %}
+        <p class="small-muted mt-3 mb-0">Run it from the <code>simplatab-machine-learning-automator</code> folder, which makes the <code>Helpers</code> package importable
+            ({% if is_image %}it contains the image preprocessing and the network definitions{% else %}deep learning models such as TabPFNv2 need it to load{% endif %}).
+            Without installing anything, the same script runs in the Docker image:
+            <code>docker run --rm -v "$PWD:/work" -w /work -e PYTHONPATH=/app dimzaridis/simplatab-machine-learning-automator:{{ version if version[:1].isdigit() else 'latest' }} python predict.py</code>.</p>
+    </div>
+</div>
+{% endmacro %}

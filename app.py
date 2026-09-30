@@ -538,6 +538,7 @@ def collect_results(root):
         stem = os.path.basename(path)[:-len("_test_predictions.csv")]
         results["predictions"].append({"path": _relative(path, root), "name": names.get(stem, stem),
                                        "size": os.path.getsize(path)})
+    results["thresholds"] = os.path.exists(os.path.join(root, "Models", "thresholds.json"))
     classes_path = os.path.join(root, "classes.csv")
     if os.path.exists(classes_path):
         results["classes"] = pd.read_csv(classes_path).to_dict("records")
