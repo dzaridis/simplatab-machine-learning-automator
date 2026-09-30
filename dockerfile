@@ -7,6 +7,10 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
 
+# The image's pip (23.0) rejects wheels of the PyTorch index whose metadata name differs in case
+# (e.g. Jinja2) and then fails building them from source: use a recent pip
+RUN pip install --no-cache-dir --upgrade pip
+
 # Install the CPU build of PyTorch (same version as requirements.txt), avoiding the CUDA libraries
 RUN pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
 
