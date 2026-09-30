@@ -41,12 +41,12 @@ You can run the Machine Learning Automator using either Docker or as a standalon
 
 1. Pull the Image
 ```bash
-docker pull dimzaridis/simplatab-machine-learning-automator:1.0.0
+docker pull dimzaridis/simplatab-machine-learning-automator:1.1.0
 ```
 ---
 2. Run the Docker Image
 ```bash
-docker run -p 7111:5000 simplatab-machine-learning-automator:1.0.0
+docker run -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:1.1.0
 ```
 ---
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
@@ -75,7 +75,7 @@ docker build -t simplatab .
 ---
 3. Run the Docker Image
 ```bash
-docker run -p 7111:5000 ml-automator
+docker run -p 7111:5000 simplatab
 ```
 
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```

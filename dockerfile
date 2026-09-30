@@ -1,6 +1,9 @@
 # Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
+LABEL org.opencontainers.image.title="simplatab-machine-learning-automator" \
+      org.opencontainers.image.version="1.1.0"
+
 # Set the working directory
 WORKDIR /app
 
