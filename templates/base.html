@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Simplatab{% endblock %} · Simplatab</title>
+    <meta name="description" content="Simplatab: automated and explainable machine learning for research data.">
+    <script>
+        // Apply the saved or system theme before the first paint (no flash of the wrong theme).
+        (function () {
+            var saved = null;
+            try { saved = localStorage.getItem('sb-theme'); } catch (e) {}
+            var dark = saved === 'dark' || ((!saved || saved === 'auto') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+        })();
+    </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-5.3.8/css/bootstrap.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons-1.13.1/bootstrap-icons.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232a78d6'/%3E%3Cpath d='M9 21l5-6 4 3 5-8' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <a class="visually-hidden-focusable position-absolute top-0 start-0 m-2 btn btn-primary" href="#main">Skip to content</a>
+
+    <nav class="sb-nav navbar navbar-expand-md" aria-label="Main navigation">
+        <div class="container">
+            <a class="sb-brand" href="{{ url_for('index') }}">
+                <span class="sb-logo" aria-hidden="true"><i class="bi bi-graph-up-arrow"></i></span>
+                <span>Simplatab</span>
+            </a>
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#nav-links"
+                    aria-controls="nav-links" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="nav-links">
+                <ul class="navbar-nav ms-auto align-items-md-center gap-md-1">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}"
+                           {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Home</a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ('automator', 'tabular', 'parameters') %}active{% endif %}"
+                           href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Automators</a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            {% for item in automators %}
+                            <li>
+                                <a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('automator', slug=item.slug) }}">
+                                    <i class="bi bi-{{ item.icon }}" aria-hidden="true"></i>
+                                    <span class="me-auto">{{ item.name }}</span>
+                                    {% if not item.available %}<span class="badge rounded-pill text-bg-light border ms-2">Soon</span>{% endif %}
+                                </a>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                    {% if job_running %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'run' %}active{% endif %}" href="{{ url_for('run') }}">
+                            <span class="status-pill running"><i class="bi bi-arrow-repeat spin" aria-hidden="true"></i>Running</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'results' %}active{% endif %}" href="{{ url_for('results') }}"
+                           {% if request.endpoint == 'results' %}aria-current="page"{% endif %}>Results</a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <button class="nav-link btn btn-link" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Colour theme">
+                            <i class="bi bi-circle-half" aria-hidden="true"></i><span class="d-md-none ms-2">Theme</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><button class="dropdown-item" type="button" data-theme-value="light"><i class="bi bi-sun me-2" aria-hidden="true"></i>Light</button></li>
+                            <li><button class="dropdown-item" type="button" data-theme-value="dark"><i class="bi bi-moon-stars me-2" aria-hidden="true"></i>Dark</button></li>
+                            <li><button class="dropdown-item" type="button" data-theme-value="auto"><i class="bi bi-display me-2" aria-hidden="true"></i>System</button></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="toast-container position-fixed top-0 end-0 p-3 mt-5" aria-live="polite" aria-atomic="true">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        {% set kind = category if category in ('success', 'warning', 'danger', 'info') else 'danger' %}
+        <div class="toast align-items-center" role="{{ 'alert' if kind == 'danger' else 'status' }}" data-bs-delay="7000">
+            <div class="d-flex">
+                <div class="toast-body d-flex gap-2 align-items-start">
+                    {% if kind == 'success' %}<i class="bi bi-check-circle-fill text-success" aria-hidden="true"></i>
+                    {% elif kind == 'warning' %}<i class="bi bi-exclamation-triangle-fill text-warning" aria-hidden="true"></i>
+                    {% elif kind == 'info' %}<i class="bi bi-info-circle-fill text-primary" aria-hidden="true"></i>
+                    {% else %}<i class="bi bi-x-octagon-fill text-danger" aria-hidden="true"></i>{% endif %}
+                    <span>{{ message }}</span>
+                </div>
+                <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>
+        {% endfor %}
+        {% endwith %}
+    </div>
+
+    <main id="main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="sb-footer">
+        <div class="container d-flex flex-column flex-md-row justify-content-between gap-3">
+            <div>
+                <div class="fw-semibold text-body">Simplatab <span class="small-muted">v{{ app_version }}</span></div>
+                <div>SImplified Machine PipeLine Automator for TABular data and beyond.</div>
+            </div>
+            <div class="d-flex flex-column align-items-md-end gap-1">
+                <a href="https://github.com/dzaridis/simplatab-machine-learning-automator" target="_blank" rel="noopener">
+                    <i class="bi bi-github me-1" aria-hidden="true"></i>Source code and documentation
+                </a>
+                <span>Self-hosted: your data stays on the machine running Simplatab.</span>
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% from "tabular/_macros.html" import page_header %}
+{% block title %}Configure · Tabular Classification{% endblock %}
+
+{% block content %}
+{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2) }}
+
+<div class="container pb-4">
+    <form id="params-form" action="{{ url_for('parameters') }}" method="post" novalidate>
+        <div class="row g-4">
+            <div class="col-lg-8 order-2 order-lg-1">
+                {% if previous_results %}
+                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
+                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+                        <div><div class="fw-semibold">Starting this run replaces the previous results</div>
+                            <div class="small-muted">Download them first if you want to keep them.</div></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_all') }}">
+                        <i class="bi bi-file-earmark-zip me-1" aria-hidden="true"></i>Download previous results</a>
+                </div>
+                {% endif %}
+
+                {% if target_warning %}
+                <div class="alert alert-warning d-flex gap-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
+                    <div><div class="fw-semibold">Check the Target column</div><div>{{ target_warning }}</div></div>
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Models</div>
+                    <div class="settings-section">
+                        {% for group, title, subtitle in [
+                            ("classical", "Classical machine learning", "Fast and well established. Trained in minutes on most datasets."),
+                            ("deep_learning", "Deep learning", "State of the art for tabular data, but slower, especially without a GPU. Pretrained weights of TabPFNv2 and TabICL are downloaded on first use."),
+                        ] %}
+                        <div class="{% if not loop.first %}mt-4{% endif %}">
+                            <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+                                <div>
+                                    <h2>{{ title }}</h2>
+                                    <p class="help">{{ subtitle }}</p>
+                                </div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Select {{ title }} models">
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="1">Select all</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="0">None</button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                {% for model in models if model.group == group %}
+                                <div class="col-md-6">
+                                    <label class="option-card">
+                                        <input type="checkbox" name="{{ model.field }}" value="true" data-group="{{ group }}"
+                                               {% if model.default %}checked{% endif %}>
+                                        <span class="option-body">
+                                            <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                            <span>
+                                                <span class="title d-block">{{ model.name }}</span>
+                                                <span class="desc d-block">{{ model.description }}</span>
+                                                <span class="speed">
+                                                    {% if model.speed == 'fast' %}<i class="bi bi-lightning-charge" aria-hidden="true"></i>Fast
+                                                    {% elif model.speed == 'moderate' %}<i class="bi bi-speedometer2" aria-hidden="true"></i>Moderate
+                                                    {% else %}<i class="bi bi-hourglass-split" aria-hidden="true"></i>Slow on CPU{% endif %}
+                                                </span>
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one model.</div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-sliders me-2 text-primary" aria-hidden="true"></i>Training and validation</div>
+
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="k_folds">Cross-validation folds</label></h2>
+                                <p class="help">Train.csv is split into K stratified folds; each model is trained on K-1 folds and validated on the remaining one, K times.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="5" min="2" max="20" required
+                                       data-min-class="{{ summary.min_class_count }}" aria-describedby="k-folds-feedback">
+                                <div class="form-text" id="k-folds-feedback">
+                                    {% if summary.min_class_count %}At most {{ summary.min_class_count }}: the smallest class has {{ summary.min_class_count }} samples.{% else %}Between 2 and 20.{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="form-check form-switch m-0">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="grid_search" name="grid_search" value="true" checked>
+                                    </div>
+                                    <h2><label for="grid_search">Hyperparameter search</label></h2>
+                                </div>
+                                <p class="help">Tunes each model's hyperparameters by cross-validated AUC. When off, each model uses its default hyperparameters: much faster, usually less accurate.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="segmented" role="radiogroup" aria-label="Search strategy">
+                                    <input type="radio" name="grid_search_type" id="gs-randomized" value="randomized" checked>
+                                    <label for="gs-randomized">Randomized</label>
+                                    <input type="radio" name="grid_search_type" id="gs-exhaustive" value="exhaustive">
+                                    <label for="gs-exhaustive">Exhaustive</label>
+                                </div>
+                                <div class="form-text" id="gs-help">Tries 40 random combinations per model.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="correlation_limit">Feature correlation limit</label></h2>
+                                <p class="help">Of two features correlated above this limit, only the more informative one is kept. Lower values remove more features.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="d-flex align-items-center gap-3">
+                                    <input type="range" class="form-range" id="correlation_limit" name="correlation_limit" min="0.1" max="1" step="0.05" value="0.7"
+                                           aria-describedby="corr-value">
+                                    <span class="value-pill" id="corr-value">0.70</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="optimization_metric">Metric for threshold optimisation</label></h2>
+                                <p class="help">
+                                    {% if summary.is_multiclass %}
+                                    Not used for multiclass targets: the predicted class is the most probable one.
+                                    {% else %}
+                                    The probability threshold separating class 0 from class 1 is chosen on the validation folds to maximise this metric, then applied to Test.csv.
+                                    {% endif %}
+                                </p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="optimization_metric" name="optimization_metric" aria-describedby="metric-help">
+                                    {% for name, description in threshold_metrics %}
+                                    <option value="{{ name }}" data-description="{{ description }}">{{ name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <div class="form-text" id="metric-help">{{ threshold_metrics[0][1] }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header py-3"><i class="bi bi-shield-check me-2 text-primary" aria-hidden="true"></i>Data bias assessment</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="form-check form-switch m-0">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="bias_assessment" name="bias_assessment" value="true"
+                                               {% if not summary.bias_features %}disabled{% endif %}>
+                                    </div>
+                                    <h2><label for="bias_assessment">Assess bias</label></h2>
+                                </div>
+                                <p class="help">Checks whether the outcome is imbalanced across the groups of a categorical feature (e.g. sex), in both files.
+                                    {% if not summary.bias_features %}<br><strong>No categorical feature was found in Train.csv.</strong>{% endif %}</p>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="visually-hidden" for="feature">Feature to assess</label>
+                                <select class="form-select" id="feature" name="feature" disabled>
+                                    <option value="">Choose a feature…</option>
+                                    {% for column in summary.bias_features %}<option value="{{ column }}">{{ column }}</option>{% endfor %}
+                                </select>
+                                <div class="invalid-feedback" id="feature-error">Choose the feature to assess.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 order-1 order-lg-2">
+                <div class="card p-4" style="position: sticky; top: 5.5rem;">
+                    <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
+                    <div class="row g-2 mb-3 text-center">
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_rows }}</div><div class="small-muted">train rows</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.test_rows }}</div><div class="small-muted">test rows</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.n_features }}</div><div class="small-muted">features</div></div></div>
+                    </div>
+                    {% if summary.has_target %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold small">{{ 'Multiclass' if summary.is_multiclass else 'Binary' }} classification</span>
+                        <span class="small-muted">{{ summary.num_classes }} classes</span>
+                    </div>
+                    <div class="d-grid gap-2 mb-3" aria-label="Class distribution in Train.csv">
+                        {% for row in summary.class_distribution %}
+                        <div class="dist-row">
+                            <span>Class {{ row.label }}</span>
+                            <div class="dist-track" role="img" aria-label="{{ row.percentage }} percent"><div class="dist-fill" style="width: {{ row.percentage }}%"></div></div>
+                            <span class="tabular-nums small-muted">{{ row.count }} · {{ row.percentage }}%</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if summary.rows_with_missing %}
+                    <div class="small d-flex gap-2 mb-3"><i class="bi bi-exclamation-triangle-fill text-warning" aria-hidden="true"></i><span>{{ summary.rows_with_missing }} train row(s) with missing values will be removed.</span></div>
+                    {% endif %}
+                    <a class="small" href="{{ url_for('tabular') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <div class="container px-0 d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between">
+                <div class="small-muted d-none d-sm-block" id="run-summary" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary btn-lg" id="run-btn">
+                    <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run pipeline
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/tabular_parameters.js') }}"></script>
+{% endblock %}

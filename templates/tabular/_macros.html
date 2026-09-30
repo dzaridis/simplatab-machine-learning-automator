@@ -1,0 +1,30 @@
+{% macro stepper(current) %}
+{% set steps = ["Upload data", "Configure", "Run", "Results"] %}
+<nav aria-label="Progress">
+    <ol class="stepper">
+        {% for label in steps %}
+        {% set index = loop.index %}
+        <li class="{% if index < current %}done{% elif index == current %}active{% endif %}"
+            {% if index == current %}aria-current="step"{% endif %}>
+            <span class="dot">{% if index < current %}<i class="bi bi-check-lg" aria-hidden="true"></i>{% else %}{{ index }}{% endif %}</span>
+            <span class="label">{{ label }}{% if index < current %}<span class="visually-hidden"> (completed)</span>{% endif %}</span>
+        </li>
+        {% endfor %}
+    </ol>
+</nav>
+{% endmacro %}
+
+{% macro page_header(title, subtitle, current) %}
+<div class="page-header">
+    <div class="container">
+        <div class="mb-4">{{ stepper(current) }}</div>
+        <div class="d-flex align-items-center gap-2 small-muted mb-1">
+            <i class="bi bi-table" aria-hidden="true"></i><span>Tabular Classification</span>
+        </div>
+        <h1 class="mb-1">{{ title }}</h1>
+        <p class="lead-muted mb-0">{{ subtitle }}</p>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro filesize(bytes) %}{% if bytes >= 1048576 %}{{ '%.1f' % (bytes / 1048576) }} MB{% elif bytes >= 1024 %}{{ '%.0f' % (bytes / 1024) }} KB{% else %}{{ bytes }} B{% endif %}{% endmacro %}

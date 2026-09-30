@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% from "tabular/_macros.html" import page_header %}
+{% block title %}Upload data · Tabular Classification{% endblock %}
+
+{% block content %}
+{{ page_header("Upload your data", "Add a training set and a test set. They are checked in your browser before anything is uploaded.", 1) }}
+
+<div class="container pb-5">
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <form id="upload-form" action="{{ url_for('upload_files') }}" method="post" enctype="multipart/form-data" novalidate>
+                <div class="row g-3">
+                    {% for kind, title, help in [
+                        ("train", "Train.csv", "Used for feature selection, hyperparameter search and K-fold validation."),
+                        ("test", "Test.csv", "Held out: only used for the final, external evaluation."),
+                    ] %}
+                    <div class="col-md-6">
+                        <div class="dropzone" data-dropzone="{{ kind }}">
+                            <input type="file" id="{{ kind }}_file" name="{{ kind }}_file" accept=".csv,text/csv"
+                                   aria-describedby="{{ kind }}-help" required>
+                            <div class="dz-empty">
+                                <div class="dz-icon mb-2"><i class="bi bi-cloud-arrow-up" aria-hidden="true"></i></div>
+                                <label for="{{ kind }}_file" class="fw-semibold d-block">{{ title }}</label>
+                                <div class="small-muted">Drag and drop, or <span class="text-primary fw-semibold">browse</span></div>
+                                <div class="small-muted mt-2" id="{{ kind }}-help">{{ help }}</div>
+                            </div>
+                            <div class="dz-file d-none">
+                                <div class="file-chip">
+                                    <span class="icon-badge"><i class="bi bi-filetype-csv" aria-hidden="true"></i></span>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="small-muted">{{ title }}</div>
+                                        <div class="name" data-field="name"></div>
+                                        <div class="small-muted tabular-nums" data-field="meta"></div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="replace">Replace</button>
+                                </div>
+                                <ul class="check-list" data-field="checks" aria-live="polite"></ul>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="card mt-4 d-none" id="preview-card">
+                    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <span><i class="bi bi-eye me-2" aria-hidden="true"></i>Preview</span>
+                        <ul class="nav nav-pills small" role="tablist">
+                            <li class="nav-item" role="presentation"><button class="nav-link active py-1" data-bs-toggle="pill" data-bs-target="#preview-train" type="button" role="tab">Train.csv</button></li>
+                            <li class="nav-item" role="presentation"><button class="nav-link py-1" data-bs-toggle="pill" data-bs-target="#preview-test" type="button" role="tab">Test.csv</button></li>
+                        </ul>
+                    </div>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="preview-train" role="tabpanel"><div class="table-responsive" style="max-height: 260px"></div></div>
+                        <div class="tab-pane fade" id="preview-test" role="tabpanel"><div class="table-responsive" style="max-height: 260px"></div></div>
+                    </div>
+                    <div class="card-footer small-muted bg-transparent">First rows of each file. The <span class="px-1 rounded" style="background: var(--sb-brand-soft)">Target</span> column is highlighted.</div>
+                </div>
+
+                <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 mt-4">
+                    <div class="small-muted" id="form-status" aria-live="polite">Add both files to continue.</div>
+                    <button type="submit" class="btn btn-primary btn-lg" id="submit-btn" disabled>
+                        <span class="btn-label">Continue to configuration<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></span>
+                        <span class="btn-busy d-none"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Uploading…</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card p-4 mb-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-list-check me-2 text-primary" aria-hidden="true"></i>Data requirements</h2>
+                <ul class="check-list mt-0">
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>CSV files with a header row and the same feature columns</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>A numeric column named <code>Target</code> in both files</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Binary: <code>0</code> / <code>1</code>, where 1 is the positive class</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Multiclass: consecutive integers <code>0, 1, …, K-1</code></span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Numeric and categorical features are both supported</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>An optional <code>ID</code> (or <code>patient_id</code>) column is used as identifier, not as a feature</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Rows with missing values are removed</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Categorical columns whose values differ between the two files are dropped</span></li>
+                </ul>
+            </div>
+            <div class="card p-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-table me-2 text-primary" aria-hidden="true"></i>Example</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm preview-table mb-2">
+                        <thead><tr><th>ID</th><th>Age</th><th>Sex</th><th>Marker</th><th class="target-col">Target</th></tr></thead>
+                        <tbody>
+                            <tr><td>p01</td><td>54</td><td>F</td><td>0.23</td><td class="target-col">0</td></tr>
+                            <tr><td>p02</td><td>61</td><td>M</td><td>0.89</td><td class="target-col">1</td></tr>
+                            <tr><td>p03</td><td>47</td><td>F</td><td>0.65</td><td class="target-col">1</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="small-muted">Maximum 50 MB per upload.</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/tabular_upload.js') }}"></script>
+{% endblock %}
