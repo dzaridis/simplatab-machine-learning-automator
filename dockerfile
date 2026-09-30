@@ -14,8 +14,16 @@ RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
 # (e.g. Jinja2) and then fails building them from source: use a recent pip
 RUN pip install --no-cache-dir --upgrade pip
 
-# Install the CPU build of PyTorch (same version as requirements.txt), avoiding the CUDA libraries
-RUN pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+# Install the CPU build of PyTorch (same version as requirements.txt), avoiding the CUDA libraries.
+# linux/amd64 (Linux, Windows, Intel Macs): the PyPI wheel bundles CUDA, use the CPU index.
+# linux/arm64 (Apple Silicon Macs, ARM Linux): the PyPI wheel is already CPU-only.
+# TARGETARCH is set by BuildKit for the platform being built.
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        pip install --no-cache-dir torch==2.8.0; \
+    else \
+        pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu; \
+    fi
 
 # Install Flask and other necessary packages
 COPY requirements.txt .
