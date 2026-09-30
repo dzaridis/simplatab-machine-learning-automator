@@ -1,0 +1,234 @@
+name: CI and Docker Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# Pushes to main run one at a time, so that two releases never get the same version.
+# A new push to a pull request cancels the previous run of that pull request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'  # same as the Docker image; required by torch/tabpfn/tabicl
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CPU build of PyTorch and torchvision (same versions as requirements.txt), avoiding the CUDA libraries
+          pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: |
+          python -m unittest discover tests -v
+
+  # Version of this release: the latest X.Y.Z release tag plus 0.0.1 (see ci/next_version.sh).
+  # It is the tag of both the Docker image and the GitHub release, and is shown in the web interface.
+  version:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compute the next version
+        id: next
+        run: |
+          version=$(ci/next_version.sh)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: \`$version\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # Builds the image natively for each platform: linux/amd64 (Linux, Windows, Intel Macs) and
+  # linux/arm64 (Apple Silicon Macs, ARM Linux). Pull requests only build; pushes to main
+  # push each platform image by digest, and the merge job publishes them under one tag.
+  build:
+    needs: version  # runs only if the tests pass
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      IMAGE: ${{ secrets.DOCKER_USERNAME || 'local' }}/simplatab-machine-learning-automator
+
+    steps:
+      - name: Prepare
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build (and push by digest on main)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: APP_VERSION=${{ needs.version.outputs.version }}
+          outputs: ${{ github.event_name == 'push' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=cacheonly' }}
+
+      - name: Export digest
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # GPU image (NVIDIA, linux/amd64): the same Dockerfile with DEVICE=gpu, published as <version>-gpu
+  # and latest-gpu. Pull requests only build it.
+  build-gpu:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ secrets.DOCKER_USERNAME || 'local' }}/simplatab-machine-learning-automator
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+      - name: Free disk space  # the CUDA libraries take several GB
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build (and push on main)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: |
+            DEVICE=gpu
+            APP_VERSION=${{ needs.version.outputs.version }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.VERSION }}-gpu
+            ${{ env.IMAGE }}:latest-gpu
+          outputs: ${{ github.event_name == 'push' && 'type=registry' || 'type=cacheonly' }}
+
+  # Publishes the platform images under one multi-platform tag (Docker picks the matching one),
+  # as the new version and as latest
+  merge:
+    if: github.event_name == 'push'
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator
+      VERSION: ${{ needs.version.outputs.version }}
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create and push the multi-platform tag
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          sources=()
+          for digest in *; do sources+=("$IMAGE@sha256:$digest"); done
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" "${sources[@]}"
+
+      - name: Inspect the published image
+        run: |
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+
+  # Creates the Git tag and the GitHub release of the version, once its CPU and GPU images are published
+  release:
+    if: github.event_name == 'push'
+    needs: [version, merge, build-gpu]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      IMAGE: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Create the tag and the release
+        run: |
+          notes=$(printf '%s\n' \
+            "Docker image (linux/amd64 and linux/arm64):" \
+            "" \
+            '```bash' \
+            "docker pull $IMAGE:$VERSION" \
+            "docker run -p 7111:5000 $IMAGE:$VERSION" \
+            '```' \
+            "" \
+            "GPU image (NVIDIA, linux/amd64; needs the NVIDIA Container Toolkit):" \
+            "" \
+            '```bash' \
+            "docker pull $IMAGE:$VERSION-gpu" \
+            "docker run --gpus all --shm-size=4g -p 7111:5000 $IMAGE:$VERSION-gpu" \
+            '```' \
+            "" \
+            "Then open http://localhost:7111/automl/")
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$VERSION" --notes "$notes" --generate-notes
