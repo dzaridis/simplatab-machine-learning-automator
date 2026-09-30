@@ -1,8 +1,7 @@
 # Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
-LABEL org.opencontainers.image.title="simplatab-machine-learning-automator" \
-      org.opencontainers.image.version="1.1.0"
+LABEL org.opencontainers.image.title="simplatab-machine-learning-automator"
 
 # Set the working directory
 WORKDIR /app
@@ -38,6 +37,12 @@ COPY . .
 
 # Create Materials directory inside the container
 RUN mkdir -p ./Materials
+
+# Version of the release, set by the CI (same as the image and release tags); shown in the web interface.
+# Declared last so that a new version does not invalidate the cached dependency layers.
+ARG APP_VERSION=dev
+ENV SIMPLATAB_VERSION=$APP_VERSION
+LABEL org.opencontainers.image.version=$APP_VERSION
 
 # Expose the port the app runs on
 EXPOSE 5000

@@ -23,7 +23,8 @@ from Helpers import DBDM
 from web.catalog import AUTOMATORS, MODELS, THRESHOLD_METRICS, get_automator
 from web.jobs import PipelineJob, PHASES
 
-APP_VERSION = "1.1.0"
+# Set in the Docker image by the release CI (same as the image and release tags)
+APP_VERSION = os.environ.get("SIMPLATAB_VERSION", "dev")
 
 app = Flask(__name__, template_folder='templates')
 # Required by flash() to show the upload errors

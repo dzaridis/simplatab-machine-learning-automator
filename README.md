@@ -45,13 +45,15 @@ ARM Linux): Docker pulls the one matching your machine.
 
 1. Pull the Image
 ```bash
-docker pull dimzaridis/simplatab-machine-learning-automator:1.1.0
+docker pull dimzaridis/simplatab-machine-learning-automator:latest
 ```
 ---
 2. Run the Docker Image
 ```bash
-docker run -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:1.1.0
+docker run -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:latest
 ```
+To run a specific version, replace `latest` with a version from the
+[Releases](https://github.com/dzaridis/simplatab-machine-learning-automator/releases) page (e.g. `1.1.1`).
 ---
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
 
@@ -119,6 +121,20 @@ python app.py
 ```
 
 6. Access the web interface at ```http://localhost:5000/automl/```
+
+## Versions and Releases
+
+Every push to `main` whose tests pass is released automatically by the CI (`.github/workflows/cicd.yaml`):
+
+1. The version is the latest release version plus `0.0.1` (e.g. `1.1.1` → `1.1.2`), computed by
+   [`ci/next_version.sh`](ci/next_version.sh).
+2. The Docker image is built for `linux/amd64` and `linux/arm64` and published as
+   `dimzaridis/simplatab-machine-learning-automator:<version>` and `:latest`.
+3. A Git tag and a GitHub release with the same `<version>` are created, with notes listing the merged changes.
+
+The version is shown at the bottom of the web interface (`dev` when running from source). To move to a new
+minor or major version, create a tag such as `1.2.0` on `main` (for example with a release on GitHub): the next
+push to `main` is then released as `1.2.1`.
 
 ## Using the Machine Learning Automator
 ### Dataset Format
