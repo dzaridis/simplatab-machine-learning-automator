@@ -31,8 +31,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # CPU build of PyTorch (same version as requirements.txt), avoiding the CUDA libraries
-          pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          # CPU build of PyTorch and torchvision (same versions as requirements.txt), avoiding the CUDA libraries
+          pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
 
       - name: Run tests
@@ -119,67 +119,31 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Publishes the platform images under one multi-platform tag (Docker picks the matching one),
-  # as the new version and as latest
-  merge:
-    if: github.event_name == 'push'
-    needs: [version, build]
+  # GPU image (NVIDIA, linux/amd64): the same Dockerfile with DEVICE=gpu, published as <version>-gpu
+  # and latest-gpu. Pull requests only build it.
+  build-gpu:
+    needs: version
     runs-on: ubuntu-latest
     env:
-      IMAGE: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator
+      IMAGE: ${{ secrets.DOCKER_USERNAME || 'local' }}/simplatab-machine-learning-automator
       VERSION: ${{ needs.version.outputs.version }}
 
     steps:
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          path: ${{ runner.temp }}/digests
-          pattern: digests-*
-          merge-multiple: true
+      - name: Free disk space  # the CUDA libraries take several GB
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Create and push the multi-platform tag
-        working-directory: ${{ runner.temp }}/digests
-        run: |
-          sources=()
-          for digest in *; do sources+=("$IMAGE@sha256:$digest"); done
-          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" "${sources[@]}"
-
-      - name: Inspect the published image
-        run: |
-          docker buildx imagetools inspect "$IMAGE:$VERSION"
-
-  # Creates the Git tag and the GitHub release of the version, once its image is published
-  release:
-    if: github.event_name == 'push'
-    needs: [version, merge]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      IMAGE: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator
-      VERSION: ${{ needs.version.outputs.version }}
-      GH_TOKEN: ${{ github.token }}
-
-    steps:
-      - name: Create the tag and the release
-        run: |
-          notes=$(printf '%s\n' \
-            "Docker image (linux/amd64 and linux/arm64):" \
-            "" \
-            '```bash' \
-            "docker pull $IMAGE:$VERSION" \
-            "docker run -p 7111:5000 $IMAGE:$VERSION" \
-            '```' \
-            "" \
-            "Then open http://localhost:7111/automl/")
-          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --title "$VERSION" --notes "$notes" --generate-notes
+      - name: Log in to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
