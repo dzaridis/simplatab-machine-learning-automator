@@ -27,7 +27,7 @@ hyperparameters_models_grid = {
     "Logistic Regression": {
         "classifier": LogisticRegression,
         "params": {
-            'penalty': ['l1', 'l2', 'elasticnet', 'none'],
+            'penalty': ['l1', 'l2', 'elasticnet', None],
             'C': [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000],
             'solver': ['liblinear', 'lbfgs', 'newton-cg', 'sag', 'saga'],
             'max_iter': [300, 500, 1000, 2000],
@@ -44,7 +44,10 @@ hyperparameters_models_grid = {
             'gamma': ['scale', 'auto', 0.001, 0.01, 0.1, 1, 10, 100],
             'coef0': [0, 0.1, 0.5, 1, 2],
             'shrinking': [True, False],
-            'probability': [True]
+            'probability': [True],
+            # libsvm has no iteration limit by default: without one, some candidates of this
+            # grid never converge (observed with the multiclass grid search on iris)
+            'max_iter': [1000000]
         },
         "default_params": {'probability': True}
     },
@@ -52,11 +55,11 @@ hyperparameters_models_grid = {
         "classifier": RandomForestClassifier,
         "params": {
             'n_estimators': [20, 50, 100, 200, 300, 400, 500],
-            'criterion': ['gini', 'entropy', 'log400_loss'],
+            'criterion': ['gini', 'entropy', 'log_loss'],
             'max_depth': [None, 2, 4, 6, 10, 20, 30, 40, 50],
             'min_samples_split': [2, 5, 10, 20],
             'min_samples_leaf': [1, 2, 4, 10],
-            'max_features': [None, 'auto', 'sqrt', 'log2'],
+            'max_features': [None, 'sqrt', 'log2'],
             'bootstrap': [True, False]
         },
         "default_params": {}
@@ -64,8 +67,8 @@ hyperparameters_models_grid = {
     "Stochastic Gradient Descent": {
         "classifier": SGDClassifier,
         "params": {
-            'loss': ['log', 'modified_huber'],
-            'penalty': ['none', 'l2', 'l1', 'elasticnet'],
+            'loss': ['log_loss', 'modified_huber'],
+            'penalty': [None, 'l2', 'l1', 'elasticnet'],
             'alpha': [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1],
             'l1_ratio': [0.0, 0.15, 0.5, 0.85, 1.0],
             'fit_intercept': [True, False],
@@ -111,7 +114,7 @@ hyperparameters_models_grid = {
             'max_depth': [None, 2, 3, 5, 10, 20, 30, 40, 50],
             'min_samples_split': [2, 5, 10, 20],
             'min_samples_leaf': [1, 2, 4, 10],
-            'max_features': [None, 'auto', 'sqrt', 'log2'],
+            'max_features': [None, 'sqrt', 'log2'],
             'max_leaf_nodes': [None, 2, 4, 10, 20, 30, 40, 50]
         },
         "default_params": {}
@@ -184,7 +187,7 @@ hyperparameters_models_grid = {
 }
 
 
-def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multiclass, num_classes):
+def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multiclass, num_classes, is_param_grid=False):
     """
     Adjust hyperparameters for multiclass classification based on the classifier type.
     
@@ -193,6 +196,8 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
         hyperparameters: Dictionary of hyperparameters
         is_multiclass: Boolean indicating if this is a multiclass problem
         num_classes: Number of classes in the target variable
+        is_param_grid: Whether hyperparameters is a search grid (lists of candidate values)
+            rather than fixed values; the adjusted grid then only contains lists.
     
     Returns:
         Dictionary of adjusted hyperparameters
@@ -240,12 +245,12 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
         if 'loss' in adjusted_hyperparameters:
             if isinstance(adjusted_hyperparameters['loss'], list):
                 # Keep only losses that support multiclass
-                multiclass_compatible_losses = ['log_loss', 'modified_huber', 'log']
+                multiclass_compatible_losses = ['log_loss', 'modified_huber']
                 adjusted_hyperparameters['loss'] = [l for l in adjusted_hyperparameters['loss'] 
                                                   if l in multiclass_compatible_losses]
                 if not adjusted_hyperparameters['loss']:  # If empty, set default
                     adjusted_hyperparameters['loss'] = ['log_loss']
-            elif adjusted_hyperparameters['loss'] not in ['log_loss', 'modified_huber', 'log']:
+            elif adjusted_hyperparameters['loss'] not in ['log_loss', 'modified_huber']:
                 # If fixed and incompatible, change to a compatible option
                 adjusted_hyperparameters['loss'] = 'log_loss'
     
@@ -268,9 +273,8 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
     
     # Adjustments for XGBClassifier
     elif classifier == XGBClassifier:
-        # For multiclass, set objective to 'multi:softprob'
-        if 'objective' not in adjusted_hyperparameters:
-            adjusted_hyperparameters['objective'] = 'multi:softprob'
+        # For multiclass, set objective to 'multi:softprob' (replaces the default binary objective)
+        adjusted_hyperparameters['objective'] = 'multi:softprob'
         
         # Set num_class parameter for multiclass
         adjusted_hyperparameters['num_class'] = num_classes
@@ -283,6 +287,11 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
     elif classifier in DEEP_LEARNING_CLASSIFIERS:
         # No specific adjustments needed as they natively output one probability per class
         pass
+
+    if is_param_grid:
+        # The search grid only accepts lists of candidate values
+        adjusted_hyperparameters = {k: v if isinstance(v, list) else [v]
+                                    for k, v in adjusted_hyperparameters.items()}
     
     return adjusted_hyperparameters
 
@@ -341,7 +350,8 @@ def train_k_fold(X_train, y_train):
         print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         logging.info(f"{nm} is starting")
         try:
-            adjusted_hp = adjust_hyperparameters_for_multiclass(cls, hp, is_multiclass, num_classes)
+            adjusted_hp = adjust_hyperparameters_for_multiclass(cls, hp, is_multiclass, num_classes,
+                                                               is_param_grid=GRID_SEARCH_ENABLING)
             # find optimal parameters
             pipeline = pipelines.MLPipeline(X_train, y_train, cls, hp)
             pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
@@ -361,18 +371,15 @@ def train_k_fold(X_train, y_train):
                 ytrain = y_train.iloc[train_index]
                 xval = X_train.iloc[test_index,:]
                 yval = y_train.iloc[test_index]
-                try:
-                    fold_hpers = adjust_hyperparameters_for_multiclass(cls, hpers, is_multiclass, num_classes)
-                    pipeline = pipelines.MLPipeline(xtrain, ytrain, cls, fold_hpers)
-                    pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
-                    pipeline.execute_preprocessing()
-                    pipeline.train_model()
-                    ppln = pipeline.build_pipeline()
-                    base_models.update({f"fold_{i+1}":ppln})
-                except Exception as e:
-                    error_message = f"An error occurred: {e}"
-                    logging.error(error_message)
-                    logging.error(traceback.format_exc())
+                # A fold that fails to train propagates to the handler below (the model is skipped),
+                # instead of evaluating the fold with the pipeline of a previous fold.
+                fold_hpers = adjust_hyperparameters_for_multiclass(cls, hpers, is_multiclass, num_classes)
+                pipeline = pipelines.MLPipeline(xtrain, ytrain, cls, fold_hpers)
+                pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
+                pipeline.execute_preprocessing()
+                pipeline.train_model()
+                ppln = pipeline.build_pipeline()
+                base_models.update({f"fold_{i+1}":ppln})
             
                 me = behave_metrics.ModelEvaluator(ppln,xval)
                 scores = me.evaluate()["y_test"]

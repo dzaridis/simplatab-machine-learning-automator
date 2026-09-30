@@ -269,6 +269,7 @@ ROC/PR curves, SHAP analysis and saved pipelines.
 
 ## Hyperparameter Tuning & Training
 - **Hyperparameter Tuning**: Uses exhaustive grid search to find the best hyperparameters.
+  Candidates are scored by their cross-validated AUC (macro one-vs-rest AUC for multiclass targets).
 - **Training**: Trains the model on the training data.
 
 ## Evaluation

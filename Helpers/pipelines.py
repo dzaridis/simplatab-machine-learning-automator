@@ -190,7 +190,11 @@ class MLPipeline:
 
     def train_model(self, perform_grid_search=False, param_grid=None, cv=3, hp_type = None):
         self.model_trainer = ModelTrainer(self.X_train, self.y_train, self.classifier, self.classifier_hyperparameters)
-        auc_scorer = make_scorer(roc_auc_score, needs_threshold=True)
+        if len(np.unique(self.y_train)) > 2:
+            # Macro one-vs-rest AUC, as reported by behave_metrics.Metrics for multiclass
+            auc_scorer = make_scorer(roc_auc_score, needs_proba=True, multi_class="ovr")
+        else:
+            auc_scorer = make_scorer(roc_auc_score, needs_threshold=True)
         if perform_grid_search:
             self.best_model, self.best_params = self.model_trainer.perform_grid_search(param_grid, cv=cv, scoring= auc_scorer, hp_type=hp_type)
         else:
