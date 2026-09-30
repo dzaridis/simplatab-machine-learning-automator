@@ -15,6 +15,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 app = Flask(__name__, template_folder='templates')
+# Required by flash() to show the upload errors
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
 
 root_app = Flask(__name__)
 @root_app.route('/')
@@ -58,7 +60,7 @@ def upload_files():
     # Check if files were uploaded
     if 'train_file' not in request.files or 'test_file' not in request.files:
         flash('Missing required files')
-        return redirect(request.url)
+        return redirect('/automl/')
     
     train_file = request.files['train_file']
     test_file = request.files['test_file']
@@ -66,11 +68,11 @@ def upload_files():
     # Check if filenames are valid
     if train_file.filename == '' or test_file.filename == '':
         flash('No selected files')
-        return redirect(request.url)
+        return redirect('/automl/')
     
     if not (allowed_file(train_file.filename) and allowed_file(test_file.filename)):
         flash('Invalid file type. Only CSV files are allowed.')
-        return redirect(request.url)
+        return redirect('/automl/')
     
     # Save files
     train_file.save(os.path.join(TEMP_INPUT_FOLDER, 'Train.csv'))
@@ -106,6 +108,10 @@ def parameters():
         params["Machine Learning Models"]["Multi-Layer Neural Network"] = request.form.get('neural_network') == 'true'
         params["Machine Learning Models"]["Decision Trees"] = request.form.get('decision_trees') == 'true'
         params["Machine Learning Models"]["XGBoost"] = request.form.get('xgboost') == 'true'
+        params["Machine Learning Models"]["TabPFNv2"] = request.form.get('tabpfn') == 'true'
+        params["Machine Learning Models"]["TabTransformer"] = request.form.get('tabtransformer') == 'true'
+        params["Machine Learning Models"]["TabR"] = request.form.get('tabr') == 'true'
+        params["Machine Learning Models"]["TabICL"] = request.form.get('tabicl') == 'true'
         
         # Save YAML file
         yaml_path = os.path.join(TEMP_INPUT_FOLDER, "machine_learning_parameters.yaml")
@@ -121,6 +127,7 @@ def parameters():
     is_multiclass = False
     num_classes = 2
     class_distribution = {}
+    target_warning = None
     
     try:
         # Try to load and check the training data
@@ -141,6 +148,11 @@ def parameters():
                         'percentage': round(count / total * 100, 2)
                     } for cls, count in class_counts.items()
                 }
+
+                # Warn before running when the Target labels are not numbered 0..K-1
+                test_path = os.path.join(TEMP_INPUT_FOLDER, "Test.csv")
+                test_df = pd.read_csv(test_path) if os.path.exists(test_path) else None
+                target_warning = DataChecker.target_label_issue(train_df, test_df)
     except Exception as e:
         print(f"Error detecting multiclass: {e}")
     
@@ -148,7 +160,8 @@ def parameters():
         'parameters.html', 
         is_multiclass=is_multiclass, 
         num_classes=num_classes,
-        class_distribution=class_distribution
+        class_distribution=class_distribution,
+        target_warning=target_warning
     )
 
 @app.route('/results')

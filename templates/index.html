@@ -51,8 +51,9 @@
                     <li>The data <strong>MUST not contain missing values</strong></li>
                     <li>Include feature columns (numerical or categorical)</li>
                     <li>The target variable column <strong>must be named "Target"</strong></li>
-                    <li>For binary classification: <strong>Target values should be 0 or 1</strong></li>
-                    <li>For multiclass classification: <strong>Target values should be integers (0, 1, 2, etc.)</strong></li>
+                    <li>For binary classification: <strong>Target values should be 0 or 1</strong> (1 is the positive class)</li>
+                    <li>For multiclass classification: <strong>Target values should be consecutive integers starting at 0</strong> (0, 1, 2, ..., K-1)</li>
+                    <li>Train.csv must contain every class, and Test.csv must only use classes of Train.csv</li>
                 </ul>
                 
                 <div class="table-responsive example-table">

@@ -42,6 +42,29 @@ class DataChecker:
             print(f"  Class {cls}: {count} samples ({count/len(df)*100:.2f}%)")
 
     @staticmethod
+    def target_label_issue(train, test=None, target_col="Target"):
+        """Describe how the Target labels differ from what the metrics expect, if they do.
+
+        The metrics, ROC curves and confusion matrices assume the classes are numbered
+        0, 1, ..., K-1 (0/1 for binary classification, 1 being the positive class).
+
+        Returns:
+            str or None: a message for the user, or None when the labels are as expected.
+        """
+        train_labels = sorted(pd.unique(train[target_col]))
+        expected = list(range(len(train_labels)))
+        if train_labels != expected:
+            return (f"The Target column of Train.csv contains {train_labels}, but the classes must be numbered "
+                    f"{expected} (0 and 1 for binary classification, 1 being the positive class). "
+                    f"Recode the Target column, otherwise the reported metrics will be wrong.")
+        if test is not None and target_col in test.columns:
+            unknown = sorted(set(pd.unique(test[target_col])) - set(train_labels))
+            if unknown:
+                return (f"The Target column of Test.csv contains {unknown}, which are not classes of Train.csv "
+                        f"{train_labels}. Both files must use the same classes.")
+        return None
+
+    @staticmethod
     def set_index_column(df, index_col="ID"):
         # Check if index_col exists
         if index_col in df.columns.to_list():

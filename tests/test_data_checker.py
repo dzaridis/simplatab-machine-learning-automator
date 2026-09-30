@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 import pandas as pd
 from io import StringIO
 from Helpers.data_checks import DataChecker  # Replace with the actual module name
@@ -23,14 +24,23 @@ class TestDataCheckerMethods(unittest.TestCase):
         self.test_df = pd.read_csv(StringIO(self.test_csv))
 
     def test_check_target_column(self):
-        # Test with valid data
+        # Test with valid binary data
         self.data_checker.check_target_column(self.train_df)
 
-        # Test with invalid data
+        # Multiclass targets are valid
+        multiclass_df = self.train_df.copy()
+        multiclass_df.loc[0, 'Target'] = 2
+        self.data_checker.check_target_column(multiclass_df)
+
+        # Non-numeric targets are invalid
         invalid_df = self.train_df.copy()
-        invalid_df.loc[0, 'Target'] = 2
+        invalid_df['Target'] = ['a', 'b', 'a', 'b']
         with self.assertRaises(ValueError):
             self.data_checker.check_target_column(invalid_df)
+
+        # A missing target column is invalid
+        with self.assertRaises(ValueError):
+            self.data_checker.check_target_column(self.train_df.drop(columns=['Target']))
 
     def test_set_index_column(self):
         # Test with 'ID' column
@@ -43,10 +53,18 @@ class TestDataCheckerMethods(unittest.TestCase):
         df_with_patient_id = self.data_checker.set_index_column(df_with_patient_id)
         self.assertEqual(df_with_patient_id.index.name, "patient_id")
 
-        # Test with neither 'ID' nor 'patient_id' column
-        df_invalid = self.train_df.drop(columns=['ID', 'patient_id']).copy()
-        with self.assertRaises(ValueError):
-            self.data_checker.set_index_column(df_invalid)
+        # Test with neither 'ID' nor 'patient_id' column: unique IDs are generated
+        df_without_id = self.train_df.drop(columns=['ID', 'patient_id']).copy()
+        df_without_id = self.data_checker.set_index_column(df_without_id)
+        self.assertEqual(df_without_id.index.name, "ID")
+        self.assertTrue(df_without_id.index.is_unique)
+
+    def test_target_label_issue(self):
+        ok = pd.DataFrame({'Target': [0, 1, 2, 1]})
+        self.assertIsNone(self.data_checker.target_label_issue(ok, pd.DataFrame({'Target': [0, 2]})))
+        self.assertIsNone(self.data_checker.target_label_issue(ok, pd.DataFrame({'feature': [1]})))
+        self.assertIn("[0, 1]", self.data_checker.target_label_issue(pd.DataFrame({'Target': [1, 2, 2]})))
+        self.assertIn("Test.csv", self.data_checker.target_label_issue(ok, pd.DataFrame({'Target': [0, 3]})))
 
     def test_remove_nan_rows(self):
         # Add NaN value to the dataframe

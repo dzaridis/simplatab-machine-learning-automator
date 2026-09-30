@@ -12,6 +12,8 @@ from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 import os
 from Helpers import pipelines
+from Helpers.dl_classifiers import (TabPFNv2Classifier, TabICLClassifier, TabTransformerClassifier,
+                                    TabRClassifier, DEEP_LEARNING_CLASSIFIERS)
 from Helpers import behave_metrics
 from Helpers import shap_module
 from Helpers import MetricsReport
@@ -25,7 +27,7 @@ hyperparameters_models_grid = {
     "Logistic Regression": {
         "classifier": LogisticRegression,
         "params": {
-            'penalty': ['l1', 'l2', 'elasticnet', 'none'],
+            'penalty': ['l1', 'l2', 'elasticnet', None],
             'C': [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000],
             'solver': ['liblinear', 'lbfgs', 'newton-cg', 'sag', 'saga'],
             'max_iter': [300, 500, 1000, 2000],
@@ -42,7 +44,10 @@ hyperparameters_models_grid = {
             'gamma': ['scale', 'auto', 0.001, 0.01, 0.1, 1, 10, 100],
             'coef0': [0, 0.1, 0.5, 1, 2],
             'shrinking': [True, False],
-            'probability': [True]
+            'probability': [True],
+            # libsvm has no iteration limit by default: without one, some candidates of this
+            # grid never converge (observed with the multiclass grid search on iris)
+            'max_iter': [1000000]
         },
         "default_params": {'probability': True}
     },
@@ -50,11 +55,11 @@ hyperparameters_models_grid = {
         "classifier": RandomForestClassifier,
         "params": {
             'n_estimators': [20, 50, 100, 200, 300, 400, 500],
-            'criterion': ['gini', 'entropy', 'log400_loss'],
+            'criterion': ['gini', 'entropy', 'log_loss'],
             'max_depth': [None, 2, 4, 6, 10, 20, 30, 40, 50],
             'min_samples_split': [2, 5, 10, 20],
             'min_samples_leaf': [1, 2, 4, 10],
-            'max_features': [None, 'auto', 'sqrt', 'log2'],
+            'max_features': [None, 'sqrt', 'log2'],
             'bootstrap': [True, False]
         },
         "default_params": {}
@@ -62,8 +67,8 @@ hyperparameters_models_grid = {
     "Stochastic Gradient Descent": {
         "classifier": SGDClassifier,
         "params": {
-            'loss': ['log', 'modified_huber'],
-            'penalty': ['none', 'l2', 'l1', 'elasticnet'],
+            'loss': ['log_loss', 'modified_huber'],
+            'penalty': [None, 'l2', 'l1', 'elasticnet'],
             'alpha': [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1],
             'l1_ratio': [0.0, 0.15, 0.5, 0.85, 1.0],
             'fit_intercept': [True, False],
@@ -109,7 +114,7 @@ hyperparameters_models_grid = {
             'max_depth': [None, 2, 3, 5, 10, 20, 30, 40, 50],
             'min_samples_split': [2, 5, 10, 20],
             'min_samples_leaf': [1, 2, 4, 10],
-            'max_features': [None, 'auto', 'sqrt', 'log2'],
+            'max_features': [None, 'sqrt', 'log2'],
             'max_leaf_nodes': [None, 2, 4, 10, 20, 30, 40, 50]
         },
         "default_params": {}
@@ -127,11 +132,62 @@ hyperparameters_models_grid = {
             'reg_lambda': [0.01, 0.1, 1, 10, 100]
         },
         "default_params": {}
+    },
+    # Deep learning classifiers (Helpers/dl_classifiers.py)
+    "TabPFNv2": {
+        "classifier": TabPFNv2Classifier,
+        "params": {
+            'n_estimators': [2, 4, 8],
+            'softmax_temperature': [0.75, 0.9, 1.0],
+            'balance_probabilities': [False, True],
+            'average_before_softmax': [False, True]
+        },
+        "default_params": {}
+    },
+    "TabTransformer": {
+        "classifier": TabTransformerClassifier,
+        "params": {
+            'dim': [16, 32, 64],
+            'depth': [2, 4, 6],
+            'heads': [4, 8],
+            'attn_dropout': [0.0, 0.1, 0.3],
+            'ff_dropout': [0.0, 0.1, 0.3],
+            'mlp_dropout': [0.0, 0.1],
+            'learning_rate': [1e-4, 3e-4, 1e-3],
+            'weight_decay': [0.0, 1e-5, 1e-4],
+            'batch_size': [32, 64, 128]
+        },
+        "default_params": {}
+    },
+    "TabR": {
+        "classifier": TabRClassifier,
+        "params": {
+            'd_main': [96, 128, 192, 265],
+            'context_size': [32, 64, 96],
+            'context_dropout': [0.0, 0.2, 0.4],
+            'dropout0': [0.0, 0.2, 0.4],
+            'encoder_n_blocks': [0, 1],
+            'predictor_n_blocks': [1, 2],
+            'num_embeddings': [None, 'plr'],
+            'plr_frequency_scale': [0.01, 0.1, 1.0],
+            'learning_rate': [1e-4, 3e-4, 1e-3],
+            'weight_decay': [0.0, 1e-6, 1e-4]
+        },
+        "default_params": {}
+    },
+    "TabICL": {
+        "classifier": TabICLClassifier,
+        "params": {
+            'n_estimators': [4, 8, 16],
+            'softmax_temperature': [0.75, 0.9, 1.0],
+            'average_logits': [True, False]
+        },
+        "default_params": {}
     }
 }
 
 
-def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multiclass, num_classes):
+def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multiclass, num_classes, is_param_grid=False):
     """
     Adjust hyperparameters for multiclass classification based on the classifier type.
     
@@ -140,6 +196,8 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
         hyperparameters: Dictionary of hyperparameters
         is_multiclass: Boolean indicating if this is a multiclass problem
         num_classes: Number of classes in the target variable
+        is_param_grid: Whether hyperparameters is a search grid (lists of candidate values)
+            rather than fixed values; the adjusted grid then only contains lists.
     
     Returns:
         Dictionary of adjusted hyperparameters
@@ -187,12 +245,12 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
         if 'loss' in adjusted_hyperparameters:
             if isinstance(adjusted_hyperparameters['loss'], list):
                 # Keep only losses that support multiclass
-                multiclass_compatible_losses = ['log_loss', 'modified_huber', 'log']
+                multiclass_compatible_losses = ['log_loss', 'modified_huber']
                 adjusted_hyperparameters['loss'] = [l for l in adjusted_hyperparameters['loss'] 
                                                   if l in multiclass_compatible_losses]
                 if not adjusted_hyperparameters['loss']:  # If empty, set default
                     adjusted_hyperparameters['loss'] = ['log_loss']
-            elif adjusted_hyperparameters['loss'] not in ['log_loss', 'modified_huber', 'log']:
+            elif adjusted_hyperparameters['loss'] not in ['log_loss', 'modified_huber']:
                 # If fixed and incompatible, change to a compatible option
                 adjusted_hyperparameters['loss'] = 'log_loss'
     
@@ -215,9 +273,8 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
     
     # Adjustments for XGBClassifier
     elif classifier == XGBClassifier:
-        # For multiclass, set objective to 'multi:softprob'
-        if 'objective' not in adjusted_hyperparameters:
-            adjusted_hyperparameters['objective'] = 'multi:softprob'
+        # For multiclass, set objective to 'multi:softprob' (replaces the default binary objective)
+        adjusted_hyperparameters['objective'] = 'multi:softprob'
         
         # Set num_class parameter for multiclass
         adjusted_hyperparameters['num_class'] = num_classes
@@ -225,6 +282,16 @@ def adjust_hyperparameters_for_multiclass(classifier, hyperparameters, is_multic
         # Remove scale_pos_weight for multiclass as it's only for binary classification
         if 'scale_pos_weight' in adjusted_hyperparameters:
             del adjusted_hyperparameters['scale_pos_weight']
+
+    # Adjustments for the deep learning classifiers (TabPFNv2, TabTransformer, TabR, TabICL)
+    elif classifier in DEEP_LEARNING_CLASSIFIERS:
+        # No specific adjustments needed as they natively output one probability per class
+        pass
+
+    if is_param_grid:
+        # The search grid only accepts lists of candidate values
+        adjusted_hyperparameters = {k: v if isinstance(v, list) else [v]
+                                    for k, v in adjusted_hyperparameters.items()}
     
     return adjusted_hyperparameters
 
@@ -282,27 +349,30 @@ def train_k_fold(X_train, y_train):
     for cls, hp, nm in zip(classifiers, hypers, names):
         print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         logging.info(f"{nm} is starting")
-        adjusted_hp = adjust_hyperparameters_for_multiclass(cls, hp, is_multiclass, num_classes)
-        # find optimal parameters
-        pipeline = pipelines.MLPipeline(X_train, y_train, cls, hp)
-        pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
-        pipeline.execute_preprocessing()
-        pipeline.train_model(perform_grid_search=GRID_SEARCH_ENABLING, param_grid=adjusted_hp, cv=skf, hp_type=HP_TYPE)
-        ppln = pipeline.build_pipeline()
-        params = pipeline.get_best_parameters()
-        params_dict.update({nm:params})
-        logging.info(f"{nm} training completed with parameters: {params}")
-        hpers = params # best parameters based on cv grid search
+        try:
+            adjusted_hp = adjust_hyperparameters_for_multiclass(cls, hp, is_multiclass, num_classes,
+                                                               is_param_grid=GRID_SEARCH_ENABLING)
+            # find optimal parameters
+            pipeline = pipelines.MLPipeline(X_train, y_train, cls, hp)
+            pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
+            pipeline.execute_preprocessing()
+            pipeline.train_model(perform_grid_search=GRID_SEARCH_ENABLING, param_grid=adjusted_hp, cv=skf, hp_type=HP_TYPE)
+            ppln = pipeline.build_pipeline()
+            params = pipeline.get_best_parameters()
+            params_dict.update({nm:params})
+            logging.info(f"{nm} training completed with parameters: {params}")
+            hpers = params # best parameters based on cv grid search
 
-        base_models = {}
-        scores_storage_algo = {}
-        thresholds_algo = {}
-        for i, (train_index, test_index) in enumerate(skf.split(X_train, y_train)):
-            xtrain = X_train.iloc[train_index,:]
-            ytrain = y_train.iloc[train_index]
-            xval = X_train.iloc[test_index,:]
-            yval = y_train.iloc[test_index]
-            try:
+            base_models = {}
+            scores_storage_algo = {}
+            thresholds_algo = {}
+            for i, (train_index, test_index) in enumerate(skf.split(X_train, y_train)):
+                xtrain = X_train.iloc[train_index,:]
+                ytrain = y_train.iloc[train_index]
+                xval = X_train.iloc[test_index,:]
+                yval = y_train.iloc[test_index]
+                # A fold that fails to train propagates to the handler below (the model is skipped),
+                # instead of evaluating the fold with the pipeline of a previous fold.
                 fold_hpers = adjust_hyperparameters_for_multiclass(cls, hpers, is_multiclass, num_classes)
                 pipeline = pipelines.MLPipeline(xtrain, ytrain, cls, fold_hpers)
                 pipeline.execute_feature_selection(corr_limit=CORRELATION_LIMIT)
@@ -310,28 +380,31 @@ def train_k_fold(X_train, y_train):
                 pipeline.train_model()
                 ppln = pipeline.build_pipeline()
                 base_models.update({f"fold_{i+1}":ppln})
-            except Exception as e:
-                error_message = f"An error occurred: {e}"
-                logging.error(error_message)
-                logging.error(traceback.format_exc())
             
-            me = behave_metrics.ModelEvaluator(ppln,xval)
-            scores = me.evaluate()["y_test"]
+                me = behave_metrics.ModelEvaluator(ppln,xval)
+                scores = me.evaluate()["y_test"]
 
-            # Find optimal threshold
-            tho = behave_metrics.ThresholdOptimizer(ppln, xval, yval)
-            thresh = tho.find_optimal_threshold(metric_to_track=METRIC_TO_TRACK)
-            thresholds_algo.update({f"fold_{i+1}":thresh})
+                # Find optimal threshold
+                tho = behave_metrics.ThresholdOptimizer(ppln, xval, yval)
+                thresh = tho.find_optimal_threshold(metric_to_track=METRIC_TO_TRACK)
+                thresholds_algo.update({f"fold_{i+1}":thresh})
 
-            # Compute metrics on that threshold
-            mr = behave_metrics.Metrics(scores, yval)
-            mr.compute_metrics(threshold=thresh)
-            scores_dict = mr.get_scores() # the scores on the fold based on the best hyperparameters
-            scores_storage_algo.update({f"fold_{i+1}":scores_dict})
-        scores_storage.update({nm:scores_storage_algo})
-        thresholds.update({nm:thresholds_algo})
-        base_models_folds.update({nm:base_models})
-        print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
+                # Compute metrics on that threshold
+                mr = behave_metrics.Metrics(scores, yval)
+                mr.compute_metrics(threshold=thresh)
+                scores_dict = mr.get_scores() # the scores on the fold based on the best hyperparameters
+                scores_storage_algo.update({f"fold_{i+1}":scores_dict})
+            scores_storage.update({nm:scores_storage_algo})
+            thresholds.update({nm:thresholds_algo})
+            base_models_folds.update({nm:base_models})
+            print("-------------------- \n", f"{nm} is completed successfully \n", "--------------------")
+        except Exception as e:
+            # A model that cannot run on this dataset (e.g. beyond the limits of a pretrained
+            # model, or its weights cannot be downloaded) is skipped instead of aborting the run.
+            params_dict.pop(nm, None)
+            logging.error(f"{nm} failed and was skipped: {e}")
+            logging.error(traceback.format_exc())
+            print("-------------------- \n", f"{nm} failed and was skipped: {e} \n", "--------------------")
     MetricsReport.summary_results_excel(scores_storage, file = f"{NUMBER_OF_FOLDS}_fold_results", conf_matrix_name=f"Internal_{NUMBER_OF_FOLDS}_fold")
     return params_dict, scores_storage, thresholds, base_models_folds
             
@@ -346,6 +419,8 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     params_inf= {}
     scores_inf = {}
     for cls, hp, nm in zip(classifiers, hypers, names):
+        if nm not in params_dict:  # skipped during the K-fold training
+            continue
         print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         hpers = params_dict[nm]
         

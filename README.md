@@ -20,6 +20,7 @@ Please navigate to the [Examples Folder](Example) where examplars Train.csv and 
 - **Support for Binary and Multiclass Classification**: Automatically adapts to your dataset
 - **Comprehensive Model Evaluation**: ROC curves, precision-recall curves, confusion matrices, and more
 - **Feature Importance Analysis**: SHAP-based explainability for all models
+- **Deep Learning Classifiers**: TabPFNv2, TabTransformer, TabR and TabICL run through the same pipeline as the classical models
 - **Bias Detection**: Identify and assess potential biases in your datasets
 - **Model Export**: Save trained models for deployment in other applications
 
@@ -40,12 +41,12 @@ You can run the Machine Learning Automator using either Docker or as a standalon
 
 1. Pull the Image
 ```bash
-docker pull dimzaridis/simplatab-machine-learning-automator:1.0.0
+docker pull dimzaridis/simplatab-machine-learning-automator:1.1.0
 ```
 ---
 2. Run the Docker Image
 ```bash
-docker run -p 7111:5000 simplatab-machine-learning-automator:1.0.0
+docker run -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:1.1.0
 ```
 ---
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
@@ -74,7 +75,7 @@ docker build -t simplatab .
 ---
 3. Run the Docker Image
 ```bash
-docker run -p 7111:5000 ml-automator
+docker run -p 7111:5000 simplatab
 ```
 
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
@@ -88,7 +89,7 @@ git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
 cd simplatab-machine-learning-automator
 ```
 
-2. Create and activate a virtual environment (optional but recommended):
+2. Create and activate a virtual environment (optional but recommended, Python 3.9 or newer):
 ```bash
 python -m venv simplatab
 # On Windows
@@ -123,8 +124,11 @@ python app.py
 File Format: CSV files named Train.csv and Test.csv
 Target Column: A column named **Target** containing:
 
-- For binary classification: Values of 0 and 1
-- For multiclass classification: Numeric class labels (0, 1, 2, etc.)
+- For binary classification: Values of 0 and 1 (1 is the positive class)
+- For multiclass classification: Consecutive integer class labels starting at 0 (0, 1, 2, ..., K-1)
+- Train.csv must contain every class, and Test.csv must only use classes of Train.csv. Other labels
+  (e.g. 1/2 or text) must be recoded: the metrics assume this numbering, and the parameters page
+  shows a warning when the uploaded Target column does not follow it.
 
 
 - Features: Any number of numeric or categorical columns
@@ -145,6 +149,7 @@ The system will automatically detect if your task is binary or multiclass classi
 **Grid Search:** Enable/disable hyperparameter optimization (If false then the randomized has no impace,If true then by selecting randomized a randomized grid search will be aplied for Hyperparameter tuning)
 **Correlation Limit:** Set threshold for feature selection (correlation matrix threshold)
 **Models:** Select which machine learning models to train
+**Deep Learning Models:** Select which deep learning models to train (TabPFNv2, TabTransformer, TabR, TabICL - disabled by default, see [Deep Learning Models](#deep-learning-models))
 
 
 3. **Run Pipeline:**
@@ -236,8 +241,38 @@ Prepares data for training:
 - **Tabular Data**: One-hot encoding.
 - **Numeric Data**: Z-Score normalization.
 
+## Deep Learning Models
+Four deep learning classifiers for tabular data can be selected next to the classical models. They are
+scikit-learn compatible estimators (`Helpers/dl_classifiers.py`), so they go through exactly the same flow:
+feature selection, preprocessing, (randomized) grid search, K-fold threshold optimization, external test,
+ROC/PR curves, SHAP analysis and saved pipelines.
+
+| Model | Type | Reference |
+|-------|------|-----------|
+| **TabPFNv2** | Pretrained foundation model, in-context learning (no training) | Hollmann et al., *Accurate predictions on small data with a tabular foundation model*, Nature 2025 |
+| **TabICL** | Pretrained foundation model, in-context learning (no training) | Qu et al., *TabICL: A Tabular Foundation Model for In-Context Learning on Large Data*, ICML 2025 |
+| **TabTransformer** | Trained from scratch | Huang et al., *TabTransformer: Tabular Data Modeling Using Contextual Embeddings*, 2020 |
+| **TabR** | Trained from scratch, retrieval-augmented | Gorishniy et al., *TabR: Tabular Deep Learning Meets Nearest Neighbors*, ICLR 2024 |
+
+- **Pretrained weights**: TabPFNv2 ([tabpfn](https://github.com/PriorLabs/TabPFN)) and TabICL ([tabicl](https://github.com/soda-inria/tabicl))
+  download their checkpoints from the HuggingFace Hub on first use. The Docker image downloads them at build time.
+  For offline machines, place the TabPFN checkpoint in the folder set by `TABPFN_MODEL_CACHE_DIR` and the TabICL
+  checkpoint in the HuggingFace cache. TabPFNv2 is limited to 10,000 training samples, 500 features and 10 classes.
+- **TabTransformer**: columns with few distinct values (e.g. the one-hot encoded categorical features) are
+  categorical tokens contextualized by the transformer; the other columns are continuous. As in the original
+  architecture, on datasets without categorical features it reduces to an MLP.
+- **TabR**: the training data is the retrieval pool at prediction time, so it is stored in the saved pipeline.
+- **Training**: TabTransformer and TabR use AdamW with early stopping on a stratified 15% validation split of the training data.
+- **Hardware**: a GPU is used automatically when available. On CPU these models are slower than the classical ones,
+  especially with grid search enabled.
+- **SHAP**: computed with a Kernel explainer on a bounded budget (14 test samples, 5 background samples,
+  150 coalitions per sample) to keep the analysis tractable on CPU.
+- A model that cannot run on the dataset (e.g. beyond the TabPFNv2 limits, or its weights cannot be downloaded)
+  is skipped and reported in `Materials/error_log.log`; the other models still complete.
+
 ## Hyperparameter Tuning & Training
 - **Hyperparameter Tuning**: Uses exhaustive grid search to find the best hyperparameters.
+  Candidates are scored by their cross-validated AUC (macro one-vs-rest AUC for multiclass targets).
 - **Training**: Trains the model on the training data.
 
 ## Evaluation
