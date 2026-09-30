@@ -23,6 +23,7 @@ Please navigate to the [Examples Folder](Example) where examplars Train.csv and 
 - **Deep Learning Classifiers**: TabPFNv2, TabTransformer, TabR and TabICL run through the same pipeline as the classical models
 - **Bias Detection**: Identify and assess potential biases in your datasets
 - **Model Export**: Save trained models for deployment in other applications
+- **Guided Web Interface**: Upload with instant checks, explained settings, live progress and a results dashboard
 
 
 ## Getting Started
@@ -138,42 +139,42 @@ Target Column: A column named **Target** containing:
 
 ### Step-by-Step Usage
 ---
-1. **Upload Datasets:**
+The web interface opens on a landing page listing the **automators**. **Tabular Classification** is available
+today. **Image Classification**, **Image Segmentation** and **Longitudinal Forecasting** are shown as
+*Coming soon*, with pages describing the data they will take and what they will produce. The tabular automator
+guides you through four steps, shown at the top of every page:
 
-Start by uploading your Train.csv and Test.csv files
-The system will automatically detect if your task is binary or multiclass classification
+1. **Upload.** Drag and drop (or browse for) `Train.csv` and `Test.csv`. The files are checked in the browser
+   before anything is sent: the `Target` column, the class labels, missing values, the columns shared by the two
+   files and the categorical values. Problems that would stop the pipeline block the upload; the others are shown
+   as warnings. A preview of both files is shown, with the `Target` column first.
 
+2. **Configure.** Every setting explains what it does, and the defaults are a good starting point:
+   - **Models:** the classical models (all selected by default) and the deep learning models (TabPFNv2,
+     TabTransformer, TabR, TabICL; off by default, see [Deep Learning Models](#deep-learning-models)).
+   - **Cross-validation folds:** the number of stratified folds, at most the size of the smallest class.
+   - **Hyperparameter search:** on or off; *Randomized* tries 40 combinations per model, *Exhaustive* tries
+     them all.
+   - **Feature correlation limit:** of two features correlated above this limit, only one is kept.
+   - **Metric for threshold optimisation** (binary targets only): the probability threshold is chosen to
+     maximise this metric. The default is **Balanced Accuracy**.
+   - **Data bias assessment:** checks the outcome balance across the groups of a categorical feature.
 
-2. Configure Parameters:
+   A summary of your data (rows, features, class distribution) stays visible next to the settings.
 
-**Bias Assessment:** Enable/disable bias detection
-**Feature for Bias Assessment:** Select the feature to check for bias (Works only for categorical features, else place None)
-**Number of K-Folds:** Set stratified cross-validation folds
-**Grid Search:** Enable/disable hyperparameter optimization (If false then the randomized has no impace,If true then by selecting randomized a randomized grid search will be aplied for Hyperparameter tuning)
-**Correlation Limit:** Set threshold for feature selection (correlation matrix threshold)
-**Models:** Select which machine learning models to train
-**Deep Learning Models:** Select which deep learning models to train (TabPFNv2, TabTransformer, TabR, TabICL - disabled by default, see [Deep Learning Models](#deep-learning-models))
+3. **Run.** The pipeline runs in the background and the page follows it live: the current phase, the
+   progress, the state of each model in the K-fold and in the external test, and the log. Models that fail
+   are skipped without stopping the run, and the reason is shown. Only one run at a time is possible.
 
+4. **Results.** A dashboard with the best model on the test set, the test and K-fold metrics tables,
+   the ROC and precision-recall curves, the confusion matrices and the SHAP plots of each model.
+   The trained pipelines and all the output files can be downloaded individually or as one zip archive.
 
-3. **Run Pipeline:**
+> **Note:** each run replaces the results of the previous one in the `Materials` folder. When results exist,
+> the configuration page says so and links to their download.
 
-Click "Run Pipeline" to start the automated machine learning process
-The system will perform:
-
-- Feature selection
-- Model training with cross-validation
-- Hyperparameter optimization (if enabled)
-- Model evaluation
-- SHAP analysis for model interpretability
-
-
-
-
-4. ** View Results:**
-
-Once processing is complete, you'll be redirected to the results page
-Review performance metrics, visualizations, and download trained models
-For multiclass problems, class-specific metrics and visualizations are provided
+The interface has light and dark themes (following the system setting by default) and works on small screens.
+All its assets are served locally, so it works without internet access.
 
 
 

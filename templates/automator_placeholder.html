@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ automator.name }}{% endblock %}
+
+{% block content %}
+<section class="hero pb-4">
+    <div class="container">
+        <nav aria-label="breadcrumb" class="mb-3">
+            <ol class="breadcrumb small">
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('index') }}#automators">Automators</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ automator.name }}</li>
+            </ol>
+        </nav>
+        <div class="d-flex flex-column flex-md-row gap-4 align-items-md-center">
+            <span class="icon-badge lg"><i class="bi bi-{{ automator.icon }}" aria-hidden="true"></i></span>
+            <div>
+                <span class="status-pill soon mb-2"><i class="bi bi-clock" aria-hidden="true"></i>Coming soon</span>
+                <h1 class="mb-2" style="font-size: clamp(1.9rem, 4vw, 2.8rem)">{{ automator.name }}</h1>
+                <p class="lead-muted mb-0 col-xl-9">{{ automator.description }}</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="section-tight">
+    <div class="container">
+        <div class="alert d-flex gap-3 align-items-start mb-4" role="note" style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+            <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+            <div>
+                <div class="fw-semibold">This automator is in development</div>
+                <div class="small-muted">The design below describes what is planned and may change before release.
+                    The tabular classification automator is available today.</div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="card h-100 p-4">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-folder2-open text-primary" aria-hidden="true"></i><h2 class="h6 fw-bold mb-0">Your data</h2>
+                    </div>
+                    <ul class="check-list mt-0">
+                        {% for line in automator.inputs %}
+                        <li><i class="bi bi-dot" aria-hidden="true"></i><span>{{ line }}</span></li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card h-100 p-4">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-diagram-3 text-primary" aria-hidden="true"></i><h2 class="h6 fw-bold mb-0">Planned pipeline</h2>
+                    </div>
+                    <ol class="ps-3 mb-0 d-grid gap-2" style="font-size:.9rem">
+                        {% for line in automator.steps %}<li>{{ line }}</li>{% endfor %}
+                    </ol>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card h-100 p-4">
+                    <div class="d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-clipboard-data text-primary" aria-hidden="true"></i><h2 class="h6 fw-bold mb-0">What you will get</h2>
+                    </div>
+                    <ul class="check-list mt-0">
+                        {% for line in automator.outputs %}
+                        <li><i class="bi bi-dot" aria-hidden="true"></i><span>{{ line }}</span></li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4 mt-4 d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between">
+            <div>
+                <div class="fw-semibold">Meanwhile, try the tabular classification automator</div>
+                <div class="small-muted">Features extracted from images or time series (e.g. radiomics) can already be analysed as tabular data.</div>
+            </div>
+            <a class="btn btn-primary" href="{{ url_for('tabular') }}"><i class="bi bi-table me-2" aria-hidden="true"></i>Open tabular automator</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

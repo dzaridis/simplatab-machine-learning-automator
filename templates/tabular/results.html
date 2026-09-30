@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% from "tabular/_macros.html" import page_header, filesize %}
+{% block title %}Results · Tabular Classification{% endblock %}
+
+{% macro figure(item) %}
+<div class="card figure-card h-100">
+    <button type="button" class="thumb" data-bs-toggle="modal" data-bs-target="#lightbox"
+            data-src="{{ url_for('material', filepath=item.path) }}" data-title="{{ item.title }}"
+            aria-label="Enlarge: {{ item.title }}">
+        <img src="{{ url_for('material', filepath=item.path) }}" alt="{{ item.title }}" loading="lazy">
+    </button>
+    <div class="caption">
+        <span>{{ item.title }}</span>
+        <a href="{{ url_for('download_file', filepath=item.path) }}" class="text-body-secondary" aria-label="Download {{ item.title }}"
+           data-bs-toggle="tooltip" data-bs-title="Download"><i class="bi bi-download" aria-hidden="true"></i></a>
+    </div>
+</div>
+{% endmacro %}
+
+{% block content %}
+{{ page_header("Results", "Performance on the internal K-fold validation and on the external test set, with explanations.", 4) }}
+
+<div class="container pb-5">
+    {% if not results.files %}
+    <div class="card empty-state">
+        <span class="icon-badge lg"><i class="bi bi-clipboard-data" aria-hidden="true"></i></span>
+        <h2 class="h4 fw-bold">No results yet</h2>
+        <p class="lead-muted mx-auto" style="max-width: 32rem">Run the tabular automator: its metrics, plots and trained models will appear here.</p>
+        <div><a class="btn btn-primary btn-lg" href="{{ url_for('tabular') }}"><i class="bi bi-play-fill me-1" aria-hidden="true"></i>Start a run</a></div>
+    </div>
+    {% else %}
+
+    <div class="d-flex flex-wrap gap-2 justify-content-md-end mb-4">
+        <a class="btn btn-primary" href="{{ url_for('download_all') }}"><i class="bi bi-file-earmark-zip me-2" aria-hidden="true"></i>Download all (.zip)</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('tabular') }}"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>New run</a>
+        <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#confirm-delete"
+                {% if job_running %}disabled{% endif %}><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete results</button>
+    </div>
+
+    {% if results.skipped %}
+    <div class="alert alert-warning" role="alert">
+        <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>Some models were skipped</div>
+        <ul class="mb-0 small">
+            {% for item in results.skipped %}<li><strong>{{ item.model }}</strong>: {{ item.reason }}</li>{% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% if results.best %}
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">Best model on the test set (AUC)</div>
+                <div class="value text mt-1">{{ results.best.model }}</div>
+            </div>
+        </div>
+        {% for metric in ["AUC", "Balanced Accuracy", "F-score"] if metric in results.best["values"] %}
+        <div class="col-4 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">{{ metric }}<span class="d-none d-md-inline small-muted"> (test, best model)</span></div>
+                <div class="value tabular-nums mt-1">{{ '%.3f' % results.best["values"][metric] }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <ul class="nav nav-underline mb-4 flex-nowrap overflow-auto" role="tablist">
+        {% set tabs = [("metrics", "Metrics", "table"), ("curves", "Curves", "graph-up"), ("confusion", "Confusion matrices", "grid-3x3"),
+                       ("shap", "Explainability", "lightbulb"), ("downloads", "Downloads", "download")] %}
+        {% for key, label, icon in tabs %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link text-nowrap {% if loop.first %}active{% endif %}" id="tab-{{ key }}" data-bs-toggle="tab" data-bs-target="#pane-{{ key }}"
+                    type="button" role="tab" aria-controls="pane-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+                <i class="bi bi-{{ icon }} me-1" aria-hidden="true"></i>{{ label }}
+            </button>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="pane-metrics" role="tabpanel" aria-labelledby="tab-metrics" tabindex="0">
+            {% if results.test %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>External test set (Test.csv)</span>
+                    <span class="small-muted fw-normal"><i class="bi bi-check-circle-fill text-success me-1" aria-hidden="true"></i>Best value per metric</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table metric-table">
+                        <thead>
+                            <tr><th scope="col">Model</th>{% for metric in results.test.metrics %}<th scope="col">{{ metric }}</th>{% endfor %}</tr>
+                        </thead>
+                        <tbody>
+                            {% for row in results.test.rows %}
+                            <tr class="{% if results.best and row.model == results.best.model %}is-best{% endif %}">
+                                <th scope="row" class="fw-semibold text-body text-nowrap" style="text-transform:none; letter-spacing:0; font-size:.9rem">{{ row.model }}</th>
+                                {% for metric in results.test.metrics %}
+                                {% set value = row["values"][metric] %}
+                                <td class="{% if row.best[metric] %}best{% endif %}">
+                                    {% if metric == "AUC" %}
+                                    <div class="metric-bar">
+                                        <span class="track" aria-hidden="true"><span class="fill d-block" style="width: {{ (value * 100) | round(1) }}%"></span></span>
+                                        <span>{{ '%.3f' % value }}</span>
+                                        {% if row.best[metric] %}<i class="bi bi-check-circle-fill" aria-label="best"></i>{% endif %}
+                                    </div>
+                                    {% else %}
+                                    {{ '%.3f' % value }}{% if row.best[metric] %} <i class="bi bi-check-circle-fill" aria-label="best"></i>{% endif %}
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if results.kfold %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Internal {{ results.kfold_name }}-fold cross-validation (Train.csv)</span>
+                    <span class="small-muted fw-normal">Mean ± standard deviation across folds</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table metric-table">
+                        <thead>
+                            <tr><th scope="col">Model</th>{% for metric in results.kfold.metrics %}<th scope="col">{{ metric }}</th>{% endfor %}</tr>
+                        </thead>
+                        <tbody>
+                            {% for row in results.kfold.rows %}
+                            <tr>
+                                <th scope="row" class="fw-semibold text-body text-nowrap" style="text-transform:none; letter-spacing:0; font-size:.9rem">{{ row.model }}</th>
+                                {% for metric in results.kfold.metrics %}<td class="text-nowrap">{{ row["values"][metric] }}</td>{% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
+            <details class="card p-3">
+                <summary class="fw-semibold" style="cursor: pointer">About these metrics</summary>
+                <dl class="row small mt-3 mb-0">
+                    <dt class="col-sm-3">AUC</dt><dd class="col-sm-9">Area under the ROC curve: how well the model ranks positives above negatives, independently of the threshold (one-vs-rest average for multiclass).</dd>
+                    <dt class="col-sm-3">Balanced accuracy</dt><dd class="col-sm-9">Average of the per-class recalls; not inflated by class imbalance.</dd>
+                    <dt class="col-sm-3">F-score</dt><dd class="col-sm-9">Harmonic mean of precision and sensitivity.</dd>
+                    <dt class="col-sm-3">Sensitivity / specificity</dt><dd class="col-sm-9">Share of positives detected / share of negatives correctly rejected (averaged over classes for multiclass).</dd>
+                    <dt class="col-sm-3">Internal vs external</dt><dd class="col-sm-9">K-fold metrics come from the validation folds of Train.csv; test metrics from Test.csv, never seen during training or tuning.</dd>
+                </dl>
+            </details>
+        </div>
+
+        <div class="tab-pane fade" id="pane-curves" role="tabpanel" aria-labelledby="tab-curves" tabindex="0">
+            {% if results.curves or results.class_curves %}
+            <div class="row g-3">
+                {% for item in results.curves + results.class_curves %}
+                <div class="col-md-6">{{ figure(item) }}</div>
+                {% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No curves were produced.</p>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-confusion" role="tabpanel" aria-labelledby="tab-confusion" tabindex="0">
+            {% for model, items in results.confusion.items() %}
+            <h2 class="h6 fw-bold {% if not loop.first %}mt-4{% endif %} mb-3">{{ model }}</h2>
+            <div class="row g-3">
+                {% for item in items %}<div class="col-md-6 col-xl-4">{{ figure(item) }}</div>{% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No confusion matrices were produced.</p>{% endfor %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-shap" role="tabpanel" aria-labelledby="tab-shap" tabindex="0">
+            {% if results.shap %}
+            <p class="small-muted">SHAP values show how much each feature pushes a prediction up or down, computed on the test set.</p>
+            <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
+                {% for model in results.shap %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#shap-{{ loop.index }}" type="button" role="tab"
+                            aria-selected="{{ 'true' if loop.first else 'false' }}">{{ model }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="tab-content">
+                {% for model, items in results.shap.items() %}
+                <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="shap-{{ loop.index }}" role="tabpanel">
+                    <div class="row g-3">{% for item in items %}<div class="col-md-6">{{ figure(item) }}</div>{% endfor %}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No SHAP plots were produced.</p>{% endif %}
+            {% if results.notes %}
+            <p class="small-muted mt-3"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>Some plots could not be produced: see
+                {% for name in results.notes %}<a href="{{ url_for('download_file', filepath=name) }}">{{ name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+            {% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-downloads" role="tabpanel" aria-labelledby="tab-downloads" tabindex="0">
+            {% if results.models %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Trained pipelines</div>
+                <div class="p-3 small-muted border-bottom">Each file contains the full pipeline (feature selection, preprocessing and model), trained on all of Train.csv.
+                    Load it with <code>pickle</code> and call <code>predict_proba</code> on data with the same columns.</div>
+                <ul class="list-group list-group-flush">
+                    {% for item in results.models %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                        <span><i class="bi bi-box-seam me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ filesize(item.size) }}</span></span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            <div class="card">
+                <div class="card-header py-3">All files <span class="small-muted fw-normal">({{ results.files | length }})</span></div>
+                <div class="table-responsive" style="max-height: 420px">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <tbody>
+                            {% for item in results.files %}
+                            <tr>
+                                <td class="small text-break">{{ item.path }}</td>
+                                <td class="small-muted text-end text-nowrap tabular-nums">{{ filesize(item.size) }}</td>
+                                <td class="text-end"><a href="{{ url_for('download_file', filepath=item.path) }}" aria-label="Download {{ item.path }}"><i class="bi bi-download" aria-hidden="true"></i></a></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="lightbox" tabindex="-1" aria-labelledby="lightbox-title" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h6" id="lightbox-title"></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center"><img class="lightbox-img" alt=""></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="confirm-delete" tabindex="-1" aria-labelledby="confirm-delete-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" action="{{ url_for('clear_files') }}" method="post">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="confirm-delete-title">Delete all results?</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">All metrics, plots and trained models will be permanently deleted. Download them first if you need them.</div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger"><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.getElementById('lightbox').addEventListener('show.bs.modal', function (event) {
+        var trigger = event.relatedTarget;
+        var image = this.querySelector('.lightbox-img');
+        image.src = trigger.getAttribute('data-src');
+        image.alt = trigger.getAttribute('data-title');
+        this.querySelector('.modal-title').textContent = trigger.getAttribute('data-title');
+    });
+</script>
+{% endblock %}

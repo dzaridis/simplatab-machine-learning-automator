@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "tabular/_macros.html" import page_header %}
+{% block title %}Running · Tabular Classification{% endblock %}
+
+{% block content %}
+{{ page_header("Running the pipeline", "You can leave this page open: it updates live. Closing it does not stop the run.", 3) }}
+
+<div class="container pb-5" id="run-root" data-status-url="{{ url_for('status') }}">
+    <div class="alert alert-success d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between {% if status.state != 'done' %}d-none{% endif %}"
+         id="done-panel" role="status">
+        <div class="d-flex gap-3 align-items-center">
+            <i class="bi bi-check-circle-fill fs-3" aria-hidden="true"></i>
+            <div><div class="fw-semibold">The pipeline finished</div><div>Metrics, plots and trained models are ready.</div></div>
+        </div>
+        <a class="btn btn-primary" href="{{ url_for('results') }}">View results<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></a>
+    </div>
+    <div class="alert alert-danger d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between {% if status.state != 'error' %}d-none{% endif %}"
+         id="error-panel" role="alert">
+        <div class="d-flex gap-3 align-items-center">
+            <i class="bi bi-x-octagon-fill fs-3" aria-hidden="true"></i>
+            <div><div class="fw-semibold">The pipeline stopped with an error</div><div id="error-message">{{ status.message }}</div></div>
+        </div>
+        <a class="btn btn-outline-danger" href="{{ url_for('parameters') }}">Back to configuration</a>
+    </div>
+
+    <div class="card p-4 mb-4">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+            <div class="d-flex align-items-center gap-3">
+                <span class="status-pill running" id="state-pill"><i class="bi bi-arrow-repeat spin" aria-hidden="true"></i><span>Running</span></span>
+                <span class="small-muted">Elapsed <span class="tabular-nums fw-semibold text-body" id="elapsed">0:00</span></span>
+            </div>
+            <span class="fw-bold tabular-nums fs-5" id="progress-label">{{ status.progress }}%</span>
+        </div>
+        <div class="progress mb-3" role="progressbar" aria-label="Pipeline progress" aria-valuemin="0" aria-valuemax="100"
+             aria-valuenow="{{ status.progress }}" id="progress">
+            <div class="progress-bar" style="width: {{ status.progress }}%"></div>
+        </div>
+        <ul class="phase-list" id="phases">
+            {% for key, label in phases %}<li data-phase="{{ key }}">{{ label }}</li>{% endfor %}
+        </ul>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header py-3 d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Models</span>
+            <span class="small-muted fw-normal">Each model is trained with K-fold cross-validation, then evaluated on Test.csv</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table metric-table mb-0">
+                <thead><tr><th scope="col">Model</th><th scope="col">K-fold training</th><th scope="col">External test</th></tr></thead>
+                <tbody id="models-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <details class="card" id="log-details">
+        <summary class="card-header py-3" style="cursor: pointer; list-style-position: inside;">
+            <i class="bi bi-terminal me-2 text-primary" aria-hidden="true"></i>Live log
+        </summary>
+        <div class="p-3"><pre class="log-console" id="log" aria-live="off"></pre></div>
+    </details>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script id="initial-status" type="application/json">{{ status | tojson }}</script>
+<script src="{{ url_for('static', filename='js/tabular_run.js') }}"></script>
+{% endblock %}
