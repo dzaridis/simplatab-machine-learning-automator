@@ -59,6 +59,13 @@ class TestDataCheckerMethods(unittest.TestCase):
         self.assertEqual(df_without_id.index.name, "ID")
         self.assertTrue(df_without_id.index.is_unique)
 
+    def test_target_label_issue(self):
+        ok = pd.DataFrame({'Target': [0, 1, 2, 1]})
+        self.assertIsNone(self.data_checker.target_label_issue(ok, pd.DataFrame({'Target': [0, 2]})))
+        self.assertIsNone(self.data_checker.target_label_issue(ok, pd.DataFrame({'feature': [1]})))
+        self.assertIn("[0, 1]", self.data_checker.target_label_issue(pd.DataFrame({'Target': [1, 2, 2]})))
+        self.assertIn("Test.csv", self.data_checker.target_label_issue(ok, pd.DataFrame({'Target': [0, 3]})))
+
     def test_remove_nan_rows(self):
         # Add NaN value to the dataframe
         df_with_nan = self.train_df.copy()

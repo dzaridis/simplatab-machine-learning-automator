@@ -124,8 +124,11 @@ python app.py
 File Format: CSV files named Train.csv and Test.csv
 Target Column: A column named **Target** containing:
 
-- For binary classification: Values of 0 and 1
-- For multiclass classification: Numeric class labels (0, 1, 2, etc.)
+- For binary classification: Values of 0 and 1 (1 is the positive class)
+- For multiclass classification: Consecutive integer class labels starting at 0 (0, 1, 2, ..., K-1)
+- Train.csv must contain every class, and Test.csv must only use classes of Train.csv. Other labels
+  (e.g. 1/2 or text) must be recoded: the metrics assume this numbering, and the parameters page
+  shows a warning when the uploaded Target column does not follow it.
 
 
 - Features: Any number of numeric or categorical columns

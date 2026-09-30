@@ -11,6 +11,12 @@
 <body>
     <div class="container">
         <h1 class="mb-4">Machine Learning Parameters</h1>
+        {% if target_warning %}
+        <div class="alert alert-warning">
+            <h5>Check the Target column</h5>
+            <p class="mb-0">{{ target_warning }}</p>
+        </div>
+        {% endif %}
         {% if is_multiclass %}
         <div class="alert alert-info">
             <h5>Multiclass Classification Detected</h5>
