@@ -6,6 +6,15 @@ on:
       - main
   pull_request:
 
+# Pushes to main run one at a time, so that two releases never get the same version.
+# A new push to a pull request cancels the previous run of that pull request.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -30,11 +39,30 @@ jobs:
         run: |
           python -m unittest discover tests -v
 
+  # Version of this release: the latest X.Y.Z release tag plus 0.0.1 (see ci/next_version.sh).
+  # It is the tag of both the Docker image and the GitHub release, and is shown in the web interface.
+  version:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compute the next version
+        id: next
+        run: |
+          version=$(ci/next_version.sh)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: \`$version\`" >> "$GITHUB_STEP_SUMMARY"
+
   # Builds the image natively for each platform: linux/amd64 (Linux, Windows, Intel Macs) and
   # linux/arm64 (Apple Silicon Macs, ARM Linux). Pull requests only build; pushes to main
   # push each platform image by digest, and the merge job publishes them under one tag.
   build:
-    needs: test  # This ensures the build job only runs if the test job succeeds
+    needs: version  # runs only if the tests pass
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +100,7 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: APP_VERSION=${{ needs.version.outputs.version }}
           outputs: ${{ github.event_name == 'push' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=cacheonly' }}
 
       - name: Export digest
@@ -90,14 +119,15 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Publishes the platform images under one multi-platform tag (Docker picks the matching one)
+  # Publishes the platform images under one multi-platform tag (Docker picks the matching one),
+  # as the new version and as latest
   merge:
     if: github.event_name == 'push'
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator
-      VERSION: '1.1.0'
+      VERSION: ${{ needs.version.outputs.version }}
 
     steps:
       - name: Download digests
@@ -121,8 +151,35 @@ jobs:
         run: |
           sources=()
           for digest in *; do sources+=("$IMAGE@sha256:$digest"); done
-          docker buildx imagetools create -t "$IMAGE:$VERSION" "${sources[@]}"
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" "${sources[@]}"
 
       - name: Inspect the published image
         run: |
           docker buildx imagetools inspect "$IMAGE:$VERSION"
+
+  # Creates the Git tag and the GitHub release of the version, once its image is published
+  release:
+    if: github.event_name == 'push'
+    needs: [version, merge]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      IMAGE: ${{ secrets.DOCKER_USERNAME }}/simplatab-machine-learning-automator
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Create the tag and the release
+        run: |
+          notes=$(printf '%s\n' \
+            "Docker image (linux/amd64 and linux/arm64):" \
+            "" \
+            '```bash' \
+            "docker pull $IMAGE:$VERSION" \
+            "docker run -p 7111:5000 $IMAGE:$VERSION" \
+            '```' \
+            "" \
+            "Then open http://localhost:7111/automl/")
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "$VERSION" --notes "$notes" --generate-notes
