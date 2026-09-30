@@ -1,4 +1,5 @@
-"""What the web interface offers: the automators and the models of the tabular automator.
+"""What the web interface offers: the automators and the models of the tabular automator
+(the networks of the image automator are in Helpers/image/models.py).
 
 Adding an automator means adding an entry to ``AUTOMATORS``: the landing page, the
 navigation and the automator pages are generated from it. An automator with
@@ -61,29 +62,32 @@ AUTOMATORS = [
     Automator(
         slug="image-classification",
         name="Image Classification",
-        tagline="Deep learning classifiers for 2D medical and natural images",
+        tagline="Deep learning classifiers for medical images",
         description=(
-            "Fine-tune pretrained convolutional and transformer networks on labelled images, "
-            "with the same validation, evaluation and explainability standards as the tabular automator."
+            "Train, validate and explain ten state-of-the-art pretrained CNNs and vision transformers "
+            "on DICOM, NIfTI, PNG or JPEG images, with the same validation standards as the tabular automator."
         ),
         icon="images",
-        status="coming_soon",
+        status="available",
+        endpoint="image",
         inputs=[
-            "One folder per class (or a CSV mapping each image to its label)",
-            "PNG / JPEG images, with DICOM and NIfTI slices planned",
-            "A held-out test set, as for tabular data",
+            "Train.zip and Test.zip with one folder per class (up to 5 GB each)",
+            "DICOM (including compressed and multi-frame), NIfTI, PNG (8/16-bit), JPEG, BMP, TIFF",
+            "The test set is provided by you and never used for training",
         ],
         steps=[
-            "Image quality checks, resizing and intensity normalisation",
-            "Transfer learning from pretrained CNNs and vision transformers",
-            "Data augmentation and stratified K-fold cross-validation",
-            "Decision threshold optimisation and external test evaluation",
-            "Visual explanations of the predictions (e.g. Grad-CAM)",
+            "Medical image preparation: DICOM rescaling, CT windows, volume slices, 16-bit normalisation",
+            "Ten pretrained networks: ResNet, EfficientNet(V2), ConvNeXt(V2), ViT, DeiT III, Swin, MaxViT, DINOv2",
+            "Feature extraction (fast, CPU friendly) or full fine-tuning (GPU recommended)",
+            "Stratified K-fold cross-validation with decision threshold optimisation",
+            "Evaluation on the external test set",
+            "Grad-CAM heatmaps of the regions behind the predictions",
         ],
         outputs=[
-            "Classification metrics, ROC and precision-recall curves",
-            "Saliency maps highlighting the regions behind each prediction",
-            "Exported trained models",
+            "K-fold and test metrics (AUC, F-score, accuracy, sensitivity, specificity, balanced accuracy)",
+            "ROC and precision-recall curves, confusion matrices",
+            "Grad-CAM figures and per-image predictions (CSV)",
+            "Trained networks ready to reuse (.pt)",
         ],
     ),
     Automator(

@@ -9,19 +9,22 @@
                 <div class="eyebrow mb-3">Automated &amp; explainable machine learning</div>
                 <h1 class="mb-4">From research data to <span class="accent">validated, explainable</span> models.</h1>
                 <p class="lead-muted mb-4 col-xl-11">
-                    Simplatab runs the complete machine learning workflow for you: data bias assessment,
-                    feature selection, model training with cross-validation, external testing and
-                    explainability. No code required.
+                    Simplatab runs the complete machine learning workflow for you, on tabular data and
+                    medical images: data checks, model training with cross-validation, external testing
+                    and explainability. No code required.
                 </p>
                 <div class="d-flex flex-wrap gap-2 mb-4">
                     <a class="btn btn-primary btn-lg" href="{{ url_for('tabular') }}">
-                        <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Start with tabular data
+                        <i class="bi bi-table me-2" aria-hidden="true"></i>Tabular data
+                    </a>
+                    <a class="btn btn-primary btn-lg" href="{{ url_for('image') }}">
+                        <i class="bi bi-images me-2" aria-hidden="true"></i>Medical images
                     </a>
                     <a class="btn btn-outline-primary btn-lg" href="#automators">Explore automators</a>
                 </div>
                 <div class="trust-row">
                     <span><i class="bi bi-shield-check me-1" aria-hidden="true"></i>Data bias assessment</span>
-                    <span><i class="bi bi-lightbulb me-1" aria-hidden="true"></i>SHAP explainability</span>
+                    <span><i class="bi bi-lightbulb me-1" aria-hidden="true"></i>SHAP and Grad-CAM explainability</span>
                     <span><i class="bi bi-hdd-network me-1" aria-hidden="true"></i>Self-hosted</span>
                 </div>
             </div>
@@ -29,15 +32,15 @@
                 <div class="hero-panel">
                     <div class="d-flex align-items-center justify-content-between px-1 pb-2">
                         <span class="fw-semibold">A run in four steps</span>
-                        <span class="status-pill available"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Tabular</span>
+                        <span class="status-pill available"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Tabular · Images</span>
                     </div>
                     <div class="hero-step">
                         <span class="num">1</span>
-                        <div><div class="fw-semibold">Upload</div><div class="small-muted">Train.csv and Test.csv, checked in your browser before upload.</div></div>
+                        <div><div class="fw-semibold">Upload</div><div class="small-muted">A training and a test set (CSV files or zipped images), checked in your browser before upload.</div></div>
                     </div>
                     <div class="hero-step">
                         <span class="num">2</span>
-                        <div><div class="fw-semibold">Configure</div><div class="small-muted">Pick models and validation settings, each one explained.</div></div>
+                        <div><div class="fw-semibold">Configure</div><div class="small-muted">Pick models or networks and validation settings, each one explained.</div></div>
                     </div>
                     <div class="hero-step">
                         <span class="num">3</span>
@@ -45,7 +48,7 @@
                     </div>
                     <div class="hero-step">
                         <span class="num">4</span>
-                        <div><div class="fw-semibold">Explore</div><div class="small-muted">Compare metrics, curves and SHAP plots; download the trained pipelines.</div></div>
+                        <div><div class="fw-semibold">Explore</div><div class="small-muted">Compare metrics and curves, SHAP plots or Grad-CAM heatmaps; download the trained models.</div></div>
                     </div>
                 </div>
             </div>
@@ -90,7 +93,7 @@
         <div class="mb-4 col-lg-8">
             <div class="eyebrow mb-2">How it works</div>
             <h2 class="section-title" id="how-title">A complete, reproducible pipeline</h2>
-            <p class="lead-muted mb-0">What the tabular automator does after you press Run.</p>
+            <p class="lead-muted mb-0">What the tabular automator does after you press Run. The image automator follows the same steps, with medical image preparation, pretrained networks and Grad-CAM.</p>
         </div>
         <div class="row g-4">
             <div class="col-md-6 col-lg-3">
@@ -136,12 +139,12 @@
                 {% set features = [
                     ("shield-check", "Data bias assessment", "Detects imbalances in the outcome across groups of a sensitive feature."),
                     ("funnel", "Automated feature selection", "Correlation filtering and model-based selection, then preprocessing."),
-                    ("cpu", "11 models, classical and deep learning", "From logistic regression and XGBoost to TabPFNv2, TabICL, TabTransformer and TabR."),
+                    ("cpu", "11 tabular models, 10 image networks", "From XGBoost and TabPFNv2 to ConvNeXt V2, Swin, MaxViT and DINOv2."),
                     ("sliders", "Hyperparameter search", "Randomized or exhaustive search, scored by cross-validated AUC."),
                     ("bullseye", "Threshold optimisation", "Chooses the decision threshold on the validation folds, not on the test set."),
                     ("clipboard-data", "Internal and external metrics", "AUC, F-score, accuracy, sensitivity, specificity and balanced accuracy."),
-                    ("lightbulb", "Explainability", "SHAP summary, beeswarm, bar and heatmap plots for every model."),
-                    ("box-seam", "Reusable pipelines", "Download trained pipelines, preprocessing included, to predict on new data."),
+                    ("lightbulb", "Explainability", "SHAP plots for tabular models, Grad-CAM heatmaps for image networks."),
+                    ("box-seam", "Reusable models", "Download trained models, preprocessing included, to predict on new data."),
                 ] %}
                 {% for icon, title, text in features %}
                 <div class="col-md-6 col-lg-3">
@@ -160,8 +163,11 @@
     <div class="container">
         <div class="card p-4 p-lg-5 text-center" style="background: var(--sb-brand-soft); border-color: rgba(var(--sb-brand-rgb), .25);">
             <h2 class="section-title mb-2">Ready to train your first models?</h2>
-            <p class="lead-muted mb-4">You only need two CSV files: a training set and a test set with a Target column.</p>
-            <div><a class="btn btn-primary btn-lg" href="{{ url_for('tabular') }}"><i class="bi bi-upload me-2" aria-hidden="true"></i>Upload your data</a></div>
+            <p class="lead-muted mb-4">You only need a training set and a test set: two CSV files, or two zip files of images with one folder per class.</p>
+            <div class="d-flex flex-wrap gap-2 justify-content-center">
+                <a class="btn btn-primary btn-lg" href="{{ url_for('tabular') }}"><i class="bi bi-table me-2" aria-hidden="true"></i>Tabular data</a>
+                <a class="btn btn-primary btn-lg" href="{{ url_for('image') }}"><i class="bi bi-images me-2" aria-hidden="true"></i>Medical images</a>
+            </div>
         </div>
     </div>
 </section>

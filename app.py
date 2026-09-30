@@ -1,7 +1,8 @@
 import os
 import glob
-import io
+import json
 import logging
+import shutil
 import tempfile
 import zipfile
 
@@ -20,8 +21,11 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from Helpers.pipelines_main import train_k_fold, external_test, read_yaml
 from Helpers.data_checks import DataChecker
 from Helpers import DBDM
+from Helpers.image import dataset as image_dataset
+from Helpers.image.io import CT_WINDOWS
+from Helpers.image.models import BACKBONES, BY_KEY as BACKBONES_BY_KEY
 from web.catalog import AUTOMATORS, MODELS, THRESHOLD_METRICS, get_automator
-from web.jobs import PipelineJob, PHASES
+from web.jobs import PipelineJob, PHASES, IMAGE_PHASES
 
 # Set in the Docker image by the release CI (same as the image and release tags)
 APP_VERSION = os.environ.get("SIMPLATAB_VERSION", "dev")
@@ -46,9 +50,14 @@ TEMP_OUTPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_output')
 os.makedirs(TEMP_INPUT_FOLDER, exist_ok=True)
 os.makedirs(TEMP_OUTPUT_FOLDER, exist_ok=True)
 
+# Image automator: uploaded zips, extracted class folders and the preprocessed image cache
+IMAGE_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_images')
+
 # Configure upload settings
 ALLOWED_EXTENSIONS = {'csv'}
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB max
+TABULAR_MAX_BYTES = 50 * 1024 * 1024  # 50 MB per CSV upload
+# Largest request: the two zips of the image automator (5 GB each)
+app.config['MAX_CONTENT_LENGTH'] = 2 * image_dataset.MAX_ZIP_BYTES + 16 * 1024 * 1024
 
 job = PipelineJob()
 
@@ -149,6 +158,10 @@ def upload_files():
                     os.unlink(file_path)
             except Exception as e:
                 print(f"Error deleting {file_path}: {e}")
+
+    if (request.content_length or 0) > TABULAR_MAX_BYTES:
+        flash('The files are too large: at most 50 MB per upload.', 'danger')
+        return redirect(url_for('tabular'))
 
     # Check if files were uploaded
     if 'train_file' not in request.files or 'test_file' not in request.files:
@@ -273,13 +286,153 @@ def parameters():
 @app.route('/run')
 def run():
     if job.state == "idle":
-        return redirect(url_for('tabular'))
-    return render_template('tabular/run.html', status=job.snapshot(), phases=PHASES)
+        return redirect(url_for('index'))
+    return render_template('run.html', status=job.snapshot(), automator=get_automator(job.automator))
 
 
 @app.route('/api/status')
 def status():
     return jsonify(job.snapshot())
+
+
+# ---------------------------------------------------------------------------
+# Image classification automator: upload -> parameters -> run -> results
+# ---------------------------------------------------------------------------
+
+IMAGE_SUMMARY = "summary.json"
+WINDOW_LABELS = [("auto", "Automatic (DICOM header)")] + [
+    (key, f"CT {key.replace('_', ' ')} ({center} / {width} HU)") for key, (center, width) in CT_WINDOWS.items()]
+VOLUME_LABELS = [("middle", "Middle slice"), ("mip", "Maximum intensity projection")]
+
+
+def image_summary():
+    path = os.path.join(IMAGE_INPUT_FOLDER, IMAGE_SUMMARY)
+    return image_dataset.load_json(path) if os.path.exists(path) else None
+
+
+def _wants_json():
+    return request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+
+
+def _image_upload_error(message):
+    if _wants_json():
+        return jsonify({"error": message}), 400
+    flash(message, 'danger')
+    return redirect(url_for('image'))
+
+
+@app.route('/image')
+def image():
+    return render_template('image/upload.html', automator=get_automator("image-classification"),
+                           max_gb=image_dataset.MAX_ZIP_BYTES // 1024 ** 3)
+
+
+@app.route('/image/upload', methods=['POST'])
+def image_upload():
+    if job.running:
+        return _image_upload_error('A pipeline is already running. Wait for it to finish before uploading new data.')
+    files = {split: request.files.get(f'{split}_zip') for split in ("train", "test")}
+    if not all(f and f.filename for f in files.values()):
+        return _image_upload_error('Add both Train.zip and Test.zip.')
+    if not all(f.filename.lower().endswith('.zip') for f in files.values()):
+        return _image_upload_error('Invalid file type: upload two .zip files.')
+
+    shutil.rmtree(IMAGE_INPUT_FOLDER, ignore_errors=True)
+    os.makedirs(IMAGE_INPUT_FOLDER)
+    try:
+        for split, upload in files.items():
+            archive = os.path.join(IMAGE_INPUT_FOLDER, f"{split}.zip")
+            upload.save(archive)
+            if os.path.getsize(archive) > image_dataset.MAX_ZIP_BYTES:
+                raise image_dataset.DatasetError(
+                    f"{upload.filename} is larger than {image_dataset.MAX_ZIP_BYTES // 1024 ** 3} GB.")
+            image_dataset.extract_zip(archive, os.path.join(IMAGE_INPUT_FOLDER, split))
+            os.remove(archive)  # keep only the extracted images
+        summary = image_dataset.summarize(os.path.join(IMAGE_INPUT_FOLDER, "train"),
+                                          os.path.join(IMAGE_INPUT_FOLDER, "test"))
+    except image_dataset.DatasetError as e:
+        shutil.rmtree(IMAGE_INPUT_FOLDER, ignore_errors=True)
+        return _image_upload_error(str(e))
+    if summary["errors"]:
+        shutil.rmtree(IMAGE_INPUT_FOLDER, ignore_errors=True)
+        return _image_upload_error(" ".join(summary["errors"]))
+    image_dataset.save_json(summary, os.path.join(IMAGE_INPUT_FOLDER, IMAGE_SUMMARY))
+    if _wants_json():
+        return jsonify({"redirect": url_for('image_parameters')})
+    return redirect(url_for('image_parameters'))
+
+
+def _bounded(form, name, cast, low, high, default):
+    try:
+        value = cast(form.get(name, default))
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid value for {name}.")
+    if not low <= value <= high:
+        raise ValueError(f"{name.replace('_', ' ').capitalize()} must be between {low} and {high}.")
+    return value
+
+
+def image_params_from_form(form, summary):
+    selected = [b.key for b in BACKBONES if form.get(b.key) == 'true']
+    if not selected:
+        raise ValueError('Select at least one network.')
+    max_folds = min(20, summary["min_class_count"])
+    positive = form.get('positive_class')
+    return {
+        "models": selected,
+        "mode": "finetune" if form.get('mode') == 'finetune' else "features",
+        "k_folds": _bounded(form, 'k_folds', int, 2, max(2, max_folds), 5),
+        "metric": form.get('optimization_metric') if form.get('optimization_metric') in dict(THRESHOLD_METRICS) else "Balanced Accuracy",
+        "classes": summary["classes"],
+        "positive_class": positive if positive in summary["classes"] else summary["positive_class"],
+        "window": form.get('window') if form.get('window') in dict(WINDOW_LABELS) else "auto",
+        "volume": form.get('volume') if form.get('volume') in dict(VOLUME_LABELS) else "middle",
+        "augmentation": {key: form.get(key) == 'true' for key in ("horizontal_flip", "vertical_flip", "rotation", "intensity")},
+        "epochs": _bounded(form, 'epochs', int, 1, 200, 20),
+        "learning_rate": _bounded(form, 'learning_rate', float, 1e-6, 1e-2, 1e-4),
+        "patience": _bounded(form, 'patience', int, 1, 50, 5),
+        "batch_size": _bounded(form, 'batch_size', int, 1, 256, 32),
+    }
+
+
+@app.route('/image/parameters', methods=['GET', 'POST'])
+def image_parameters():
+    if job.running:
+        return redirect(url_for('run'))
+    summary = image_summary()
+    if summary is None:
+        flash('Upload Train.zip and Test.zip first.', 'warning')
+        return redirect(url_for('image'))
+
+    if request.method == 'POST':
+        try:
+            params = image_params_from_form(request.form, summary)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(url_for('image_parameters'))
+        image_dataset.save_json(params, os.path.join(IMAGE_INPUT_FOLDER, "params.json"))
+        names = [BACKBONES_BY_KEY[key].name for key in params["models"]]
+        # The results of the previous run are replaced (the parameters page says so)
+        clear_materials()
+        from Helpers.image.pipeline import run_image_pipeline
+        if not job.start(lambda: run_image_pipeline(IMAGE_INPUT_FOLDER, params), names,
+                         automator="image-classification", phases=IMAGE_PHASES, initial_phase="prep"):
+            flash('A pipeline is already running.', 'warning')
+        return redirect(url_for('run'))
+
+    import torch
+    return render_template(
+        'image/parameters.html',
+        automator=get_automator("image-classification"),
+        summary=summary,
+        previous_results=has_results(),
+        backbones=BACKBONES,
+        threshold_metrics=THRESHOLD_METRICS,
+        window_labels=WINDOW_LABELS,
+        volume_labels=VOLUME_LABELS,
+        gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        cpu_count=os.cpu_count(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -296,10 +449,17 @@ def _relative(path, root):
 def collect_results(root):
     """Everything the results page shows, read from the Materials folder."""
     results = {"test": None, "kfold": None, "kfold_name": None, "best": None, "curves": [],
-               "class_curves": [], "confusion": {}, "shap": {}, "models": [], "files": [],
-               "skipped": [], "notes": []}
+               "class_curves": [], "confusion": {}, "shap": {}, "gradcam": {}, "models": [], "files": [],
+               "predictions": [], "classes": [], "skipped": [], "notes": [], "info": {},
+               "automator": get_automator("tabular")}
     if not os.path.isdir(root):
         return results
+    # Written by the image automator (the tabular automator writes none)
+    info_path = os.path.join(root, "run_info.json")
+    if os.path.exists(info_path):
+        with open(info_path) as f:
+            results["info"] = json.load(f)
+    results["automator"] = get_automator(results["info"].get("automator", "tabular"))
 
     for dirpath, _, filenames in os.walk(root):
         for name in sorted(filenames):
@@ -361,6 +521,26 @@ def collect_results(root):
         results["models"].append({"path": _relative(path, root),
                                   "name": os.path.basename(path)[:-len("_pipeline.pkl")],
                                   "size": os.path.getsize(path)})
+    names = {"".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in b.name): b.name for b in BACKBONES}
+    for path in sorted(glob.glob(os.path.join(root, "Models", "*.pt"))):
+        stem = os.path.basename(path)[:-3]
+        results["models"].append({"path": _relative(path, root), "name": names.get(stem, stem),
+                                  "size": os.path.getsize(path)})
+
+    for model_dir in sorted(glob.glob(os.path.join(root, "GradCAM", "*"))):
+        plots = sorted(glob.glob(os.path.join(model_dir, "*.png")))
+        if plots:
+            model = names.get(os.path.basename(model_dir), os.path.basename(model_dir))
+            results["gradcam"][model] = [
+                {"path": _relative(p, root), "title": "Class " + os.path.basename(p)[:-4].split("_gradcam_", 1)[-1]}
+                for p in plots]
+    for path in sorted(glob.glob(os.path.join(root, "Predictions", "*.csv"))):
+        stem = os.path.basename(path)[:-len("_test_predictions.csv")]
+        results["predictions"].append({"path": _relative(path, root), "name": names.get(stem, stem),
+                                       "size": os.path.getsize(path)})
+    classes_path = os.path.join(root, "classes.csv")
+    if os.path.exists(classes_path):
+        results["classes"] = pd.read_csv(classes_path).to_dict("records")
 
     log_path = os.path.join(root, "error_log.log")
     if os.path.exists(log_path):
@@ -369,7 +549,7 @@ def collect_results(root):
                 if "failed and was skipped:" in line:
                     model, reason = line.split(":ERROR:", 1)[-1].split(" failed and was skipped:", 1)
                     results["skipped"].append({"model": model.strip(), "reason": reason.strip()})
-    for name in ("Shap_error_log.txt", "Model_save_error_log.txt"):
+    for name in ("Shap_error_log.txt", "Model_save_error_log.txt", "GradCAM_error_log.txt"):
         if os.path.exists(os.path.join(root, name)):
             results["notes"].append(name)
     return results
@@ -377,7 +557,7 @@ def collect_results(root):
 
 @app.route('/results')
 def results():
-    return render_template('tabular/results.html', results=collect_results(materials_dir()),
+    return render_template('results.html', results=collect_results(materials_dir()),
                            metrics_order=METRICS)
 
 
@@ -394,29 +574,19 @@ def download_file(filepath):
 
 @app.route('/download_all')
 def download_all():
-    # Create a BytesIO object to store the zip file
-    memory_file = io.BytesIO()
+    # Built in a temporary file rather than in memory: trained networks weigh up to ~100 MB each
+    archive = tempfile.TemporaryFile()
     root = materials_dir()
-
-    # Create a zip file
-    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Walk through all files in Materials directory
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for dirpath, dirs, files in os.walk(root):
             for file in files:
                 file_path = os.path.join(dirpath, file)
-                # Calculate path relative to Materials directory for the archive
-                zipf.write(file_path, os.path.relpath(file_path, root))
-
-    # Move the cursor to the beginning of the BytesIO object
-    memory_file.seek(0)
-
-    # Return the zip file as an attachment
-    return send_file(
-        memory_file,
-        mimetype='application/zip',
-        as_attachment=True,
-        download_name='pipeline_results.zip'
-    )
+                # Paths relative to the Materials directory; trained networks are already compressed
+                compression = zipfile.ZIP_STORED if file.endswith(('.pt', '.png')) else zipfile.ZIP_DEFLATED
+                zipf.write(file_path, os.path.relpath(file_path, root), compress_type=compression)
+    archive.seek(0)
+    return send_file(archive, mimetype='application/zip', as_attachment=True,
+                     download_name='pipeline_results.zip')
 
 
 @app.route('/clear_files', methods=['POST'])

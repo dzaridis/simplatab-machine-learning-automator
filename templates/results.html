@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% from "tabular/_macros.html" import page_header, filesize %}
-{% block title %}Results · Tabular Classification{% endblock %}
+{% from "_macros.html" import page_header, filesize %}
+{% block title %}Results · {{ results.automator.name }}{% endblock %}
 
 {% macro figure(item) %}
 <div class="card figure-card h-100">
@@ -18,24 +18,36 @@
 {% endmacro %}
 
 {% block content %}
-{{ page_header("Results", "Performance on the internal K-fold validation and on the external test set, with explanations.", 4) }}
+{% set is_image = results.automator.slug == 'image-classification' %}
+{% set train_name, test_name = ('Train.zip', 'Test.zip') if is_image else ('Train.csv', 'Test.csv') %}
+{{ page_header("Results", "Performance on the internal K-fold validation and on the external test set, with explanations.", 4, results.automator) }}
 
 <div class="container pb-5">
     {% if not results.files %}
     <div class="card empty-state">
         <span class="icon-badge lg"><i class="bi bi-clipboard-data" aria-hidden="true"></i></span>
         <h2 class="h4 fw-bold">No results yet</h2>
-        <p class="lead-muted mx-auto" style="max-width: 32rem">Run the tabular automator: its metrics, plots and trained models will appear here.</p>
-        <div><a class="btn btn-primary btn-lg" href="{{ url_for('tabular') }}"><i class="bi bi-play-fill me-1" aria-hidden="true"></i>Start a run</a></div>
+        <p class="lead-muted mx-auto" style="max-width: 32rem">Run an automator: its metrics, plots and trained models will appear here.</p>
+        <div class="d-flex flex-wrap gap-2 justify-content-center">
+            {% for item in automators if item.available %}
+            <a class="btn {{ 'btn-primary' if loop.first else 'btn-outline-primary' }} btn-lg" href="{{ url_for(item.endpoint) }}"><i class="bi bi-{{ item.icon }} me-2" aria-hidden="true"></i>{{ item.name }}</a>
+            {% endfor %}
+        </div>
     </div>
     {% else %}
 
     <div class="d-flex flex-wrap gap-2 justify-content-md-end mb-4">
         <a class="btn btn-primary" href="{{ url_for('download_all') }}"><i class="bi bi-file-earmark-zip me-2" aria-hidden="true"></i>Download all (.zip)</a>
-        <a class="btn btn-outline-primary" href="{{ url_for('tabular') }}"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>New run</a>
+        <a class="btn btn-outline-primary" href="{{ url_for(results.automator.endpoint) }}"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>New run</a>
         <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#confirm-delete"
                 {% if job_running %}disabled{% endif %}><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete results</button>
     </div>
+
+    {% if results.info.mode %}
+    <p class="small-muted mb-3"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        {{ 'Fine-tuning' if results.info.mode == 'finetune' else 'Feature extraction' }} · {{ results.info.k_folds }}-fold cross-validation ·
+        threshold metric {{ results.info.metric }} · {{ results.info.device }}{% if results.info.skipped_images %} · {{ results.info.skipped_images }} unreadable image(s) skipped{% endif %}</p>
+    {% endif %}
 
     {% if results.skipped %}
     <div class="alert alert-warning" role="alert">
@@ -67,7 +79,7 @@
 
     <ul class="nav nav-underline mb-4 flex-nowrap overflow-auto" role="tablist">
         {% set tabs = [("metrics", "Metrics", "table"), ("curves", "Curves", "graph-up"), ("confusion", "Confusion matrices", "grid-3x3"),
-                       ("shap", "Explainability", "lightbulb"), ("downloads", "Downloads", "download")] %}
+                       ("shap", "Grad-CAM" if is_image else "Explainability", "lightbulb"), ("downloads", "Downloads", "download")] %}
         {% for key, label, icon in tabs %}
         <li class="nav-item" role="presentation">
             <button class="nav-link text-nowrap {% if loop.first %}active{% endif %}" id="tab-{{ key }}" data-bs-toggle="tab" data-bs-target="#pane-{{ key }}"
@@ -83,7 +95,7 @@
             {% if results.test %}
             <div class="card mb-4">
                 <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
-                    <span>External test set (Test.csv)</span>
+                    <span>External test set ({{ test_name }})</span>
                     <span class="small-muted fw-normal"><i class="bi bi-check-circle-fill text-success me-1" aria-hidden="true"></i>Best value per metric</span>
                 </div>
                 <div class="table-responsive">
@@ -120,7 +132,7 @@
             {% if results.kfold %}
             <div class="card mb-4">
                 <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
-                    <span>Internal {{ results.kfold_name }}-fold cross-validation (Train.csv)</span>
+                    <span>Internal {{ results.kfold_name }}-fold cross-validation ({{ train_name }})</span>
                     <span class="small-muted fw-normal">Mean ± standard deviation across folds</span>
                 </div>
                 <div class="table-responsive">
@@ -141,6 +153,26 @@
             </div>
             {% endif %}
 
+            {% if results.classes %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Classes</span>
+                    <span class="small-muted fw-normal">Confusion matrices and curves refer to classes by their number{% if results.classes | length == 2 %}; class 1 is the positive class{% endif %}</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table metric-table mb-0">
+                        <thead><tr><th scope="col">Number</th><th scope="col">Class</th><th scope="col">Training images</th><th scope="col">Test images</th></tr></thead>
+                        <tbody>
+                            {% for row in results.classes %}
+                            <tr><td class="tabular-nums">{{ row['index'] }}</td><td class="fw-semibold">{{ row['class'] }}</td>
+                                <td class="tabular-nums">{{ row['train_images'] }}</td><td class="tabular-nums">{{ row['test_images'] }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+
             <details class="card p-3">
                 <summary class="fw-semibold" style="cursor: pointer">About these metrics</summary>
                 <dl class="row small mt-3 mb-0">
@@ -148,7 +180,7 @@
                     <dt class="col-sm-3">Balanced accuracy</dt><dd class="col-sm-9">Average of the per-class recalls; not inflated by class imbalance.</dd>
                     <dt class="col-sm-3">F-score</dt><dd class="col-sm-9">Harmonic mean of precision and sensitivity.</dd>
                     <dt class="col-sm-3">Sensitivity / specificity</dt><dd class="col-sm-9">Share of positives detected / share of negatives correctly rejected (averaged over classes for multiclass).</dd>
-                    <dt class="col-sm-3">Internal vs external</dt><dd class="col-sm-9">K-fold metrics come from the validation folds of Train.csv; test metrics from Test.csv, never seen during training or tuning.</dd>
+                    <dt class="col-sm-3">Internal vs external</dt><dd class="col-sm-9">K-fold metrics come from the validation folds of {{ train_name }}; test metrics from {{ test_name }}, never seen during training or tuning.</dd>
                 </dl>
             </details>
         </div>
@@ -173,7 +205,27 @@
         </div>
 
         <div class="tab-pane fade" id="pane-shap" role="tabpanel" aria-labelledby="tab-shap" tabindex="0">
-            {% if results.shap %}
+            {% if is_image %}
+            {% if results.gradcam %}
+            <p class="small-muted">Grad-CAM highlights the image regions that drove each prediction on the test set (red: strongest).
+                For each class, the most confident errors are shown first, marked ✗, then the most confident correct predictions.</p>
+            <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
+                {% for model in results.gradcam %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#cam-{{ loop.index }}" type="button" role="tab"
+                            aria-selected="{{ 'true' if loop.first else 'false' }}">{{ model }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="tab-content">
+                {% for model, items in results.gradcam.items() %}
+                <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="cam-{{ loop.index }}" role="tabpanel">
+                    <div class="row g-3">{% for item in items %}<div class="col-md-6 col-xl-4">{{ figure(item) }}</div>{% endfor %}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No Grad-CAM figures were produced.</p>{% endif %}
+            {% elif results.shap %}
             <p class="small-muted">SHAP values show how much each feature pushes a prediction up or down, computed on the test set.</p>
             <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
                 {% for model in results.shap %}
@@ -200,13 +252,34 @@
         <div class="tab-pane fade" id="pane-downloads" role="tabpanel" aria-labelledby="tab-downloads" tabindex="0">
             {% if results.models %}
             <div class="card mb-4">
-                <div class="card-header py-3">Trained pipelines</div>
+                <div class="card-header py-3">Trained {{ 'networks' if is_image else 'pipelines' }}</div>
+                {% if is_image %}
+                <div class="p-3 small-muted border-bottom">Each file contains the network trained on all of Train.zip, its classes, decision threshold and image preprocessing. Predict on new DICOM, NIfTI or image files with:
+                    <pre class="log-console mt-2 mb-0">from Helpers.image.inference import load_model, predict
+model, info = load_model("DINOv2-Small.pt")
+predict(model, info, ["scan_001.dcm", "scan_002.png"])</pre></div>
+                {% else %}
                 <div class="p-3 small-muted border-bottom">Each file contains the full pipeline (feature selection, preprocessing and model), trained on all of Train.csv.
                     Load it with <code>pickle</code> and call <code>predict_proba</code> on data with the same columns.</div>
+                {% endif %}
                 <ul class="list-group list-group-flush">
                     {% for item in results.models %}
                     <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
                         <span><i class="bi bi-box-seam me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ filesize(item.size) }}</span></span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if results.predictions %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Test predictions</div>
+                <div class="p-3 small-muted border-bottom">One CSV per network: each test image with its true class, predicted class and class probabilities.</div>
+                <ul class="list-group list-group-flush">
+                    {% for item in results.predictions %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                        <span><i class="bi bi-filetype-csv me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ filesize(item.size) }}</span></span>
                         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download</a>
                     </li>
                     {% endfor %}

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Upload data · Image Classification{% endblock %}
+
+{% block content %}
+{{ page_header("Upload your images", "Add a training set and a test set as zip files. Their class folders are checked in your browser before the upload starts.", 1, automator) }}
+
+<div class="container pb-5">
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <form id="upload-form" action="{{ url_for('image_upload') }}" method="post" enctype="multipart/form-data" novalidate
+                  data-max-bytes="{{ max_gb * 1024 * 1024 * 1024 }}">
+                <div class="row g-3">
+                    {% for kind, title, help in [
+                        ("train", "Train.zip", "Used for K-fold cross-validation and to train the final networks."),
+                        ("test", "Test.zip", "Held out: only used for the final, external evaluation."),
+                    ] %}
+                    <div class="col-md-6">
+                        <div class="dropzone" data-dropzone="{{ kind }}">
+                            <input type="file" id="{{ kind }}_zip" name="{{ kind }}_zip" accept=".zip,application/zip"
+                                   aria-describedby="{{ kind }}-help" required>
+                            <div class="dz-empty">
+                                <div class="dz-icon mb-2"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i></div>
+                                <label for="{{ kind }}_zip" class="fw-semibold d-block">{{ title }}</label>
+                                <div class="small-muted">Drag and drop, or <span class="text-primary fw-semibold">browse</span></div>
+                                <div class="small-muted mt-2" id="{{ kind }}-help">{{ help }}</div>
+                            </div>
+                            <div class="dz-file d-none">
+                                <div class="file-chip">
+                                    <span class="icon-badge"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i></span>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="small-muted">{{ title }}</div>
+                                        <div class="name" data-field="name"></div>
+                                        <div class="small-muted tabular-nums" data-field="meta"></div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="replace">Replace</button>
+                                </div>
+                                <ul class="check-list" data-field="checks" aria-live="polite"></ul>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="card mt-4 d-none" id="classes-card">
+                    <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                        <span><i class="bi bi-folder2-open me-2" aria-hidden="true"></i>Classes found</span>
+                        <span class="small-muted fw-normal">From the folder names inside the zip files</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table metric-table mb-0">
+                            <thead><tr><th scope="col">Class</th><th scope="col">Train images</th><th scope="col">Test images</th></tr></thead>
+                            <tbody id="classes-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card mt-4 p-3 d-none" id="upload-progress" aria-live="polite">
+                    <div class="d-flex justify-content-between small mb-2">
+                        <span class="fw-semibold" id="upload-label">Uploading…</span>
+                        <span class="tabular-nums small-muted" id="upload-detail"></span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="upload-bar">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="alert alert-danger mt-4 d-none" role="alert" id="upload-error"></div>
+
+                <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 mt-4">
+                    <div class="small-muted" id="form-status" aria-live="polite">Add both zip files to continue.</div>
+                    <button type="submit" class="btn btn-primary btn-lg" id="submit-btn" disabled>
+                        <span class="btn-label">Upload and continue<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></span>
+                        <span class="btn-busy d-none"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Uploading…</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card p-4 mb-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-list-check me-2 text-primary" aria-hidden="true"></i>Data requirements</h2>
+                <ul class="check-list mt-0">
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Two zip files, at most {{ max_gb }} GB each</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>One folder per class; the folder names are the class names</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>The same class folders in both zips, at least two classes</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>DICOM (<code>.dcm</code> or no extension, compressed and multi-frame), NIfTI (<code>.nii</code>, <code>.nii.gz</code>), PNG (8 or 16-bit), JPEG, BMP, TIFF</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Sub-folders (e.g. one per patient) are allowed: every image file is one sample</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Keep all the images of a patient in the same zip, otherwise the test metrics are optimistic</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>3D volumes are reduced to one 2D image (middle slice or maximum intensity projection)</span></li>
+                </ul>
+            </div>
+            <div class="card p-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-diagram-2 me-2 text-primary" aria-hidden="true"></i>Example layout</h2>
+<pre class="log-console mb-2" style="max-height:none">Train.zip
+├── benign/
+│   ├── case_001.dcm
+│   └── patient_07/slice_12.dcm
+└── malignant/
+    ├── case_104.nii.gz
+    └── case_105.png</pre>
+                <div class="small-muted">A single wrapping folder (e.g. <code>Train/</code>) is fine. Test.zip has the same class folders.</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/image_upload.js') }}"></script>
+{% endblock %}

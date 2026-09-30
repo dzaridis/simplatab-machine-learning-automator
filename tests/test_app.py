@@ -73,7 +73,7 @@ class TestPages(AppTestCase):
             response = self.client.get(f"/automl/automators/{automator.slug}")
             if automator.available:
                 self.assertEqual(response.status_code, 302)
-                self.assertEqual(response.headers["Location"], "/automl/tabular")
+                self.assertEqual(response.headers["Location"], f"/automl/{automator.endpoint}")
             else:
                 self.assertEqual(response.status_code, 200)
                 self.assertIn(automator.steps[0], response.get_data(as_text=True))
@@ -81,7 +81,7 @@ class TestPages(AppTestCase):
 
     def test_tabular_flow_requires_uploaded_data(self):
         self.assertEqual(self.client.get("/automl/tabular").status_code, 200)
-        self.assertEqual(self.client.get("/automl/run").headers["Location"], "/automl/tabular")
+        self.assertEqual(self.client.get("/automl/run").headers["Location"], "/automl/")
 
     def test_static_assets_are_served_locally(self):
         for path in ("css/app.css", "js/app.js", "vendor/bootstrap-5.3.8/css/bootstrap.min.css",
