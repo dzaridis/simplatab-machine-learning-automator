@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_macros.html" import page_header, filesize %}
+{% from "_usage.html" import usage_card %}
 {% block title %}Results · {{ results.automator.name }}{% endblock %}
 
 {% macro figure(item) %}
@@ -253,15 +254,7 @@
             {% if results.models %}
             <div class="card mb-4">
                 <div class="card-header py-3">Trained {{ 'networks' if is_image else 'pipelines' }}</div>
-                {% if is_image %}
-                <div class="p-3 small-muted border-bottom">Each file contains the network trained on all of Train.zip, its classes, decision threshold and image preprocessing. Predict on new DICOM, NIfTI or image files with:
-                    <pre class="log-console mt-2 mb-0">from Helpers.image.inference import load_model, predict
-model, info = load_model("DINOv2-Small.pt")
-predict(model, info, ["scan_001.dcm", "scan_002.png"])</pre></div>
-                {% else %}
-                <div class="p-3 small-muted border-bottom">Each file contains the full pipeline (feature selection, preprocessing and model), trained on all of Train.csv.
-                    Load it with <code>pickle</code> and call <code>predict_proba</code> on data with the same columns.</div>
-                {% endif %}
+                <div class="p-3 small-muted border-bottom">Trained on all of {{ train_name }}. <a href="#use-models">How to use them on new data</a> is shown below.</div>
                 <ul class="list-group list-group-flush">
                     {% for item in results.models %}
                     <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
@@ -272,6 +265,7 @@ predict(model, info, ["scan_001.dcm", "scan_002.png"])</pre></div>
                 </ul>
             </div>
             {% endif %}
+            {% if results.models %}{{ usage_card(is_image, results.models, results.best.model if results.best else None, app_version, results.thresholds) }}{% endif %}
             {% if results.predictions %}
             <div class="card mb-4">
                 <div class="card-header py-3">Test predictions</div>
@@ -338,6 +332,16 @@ predict(model, info, ["scan_001.dcm", "scan_002.png"])</pre></div>
 
 {% block scripts %}
 <script>
+    document.querySelectorAll('[data-copy-target]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var code = document.getElementById(button.getAttribute('data-copy-target')).textContent;
+            var label = button.querySelector('span');
+            navigator.clipboard.writeText(code).then(function () {
+                label.textContent = 'Copied';
+                setTimeout(function () { label.textContent = 'Copy'; }, 1500);
+            }, function () { label.textContent = 'Select and copy'; });
+        });
+    });
     document.getElementById('lightbox').addEventListener('show.bs.modal', function (event) {
         var trigger = event.relatedTarget;
         var image = this.querySelector('.lightbox-img');

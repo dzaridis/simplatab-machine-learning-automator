@@ -1,425 +1,164 @@
+# Simplatab
 
-# SIMPLATAB: **SI**mplified **M**achine **P**ipe**L**ine **A**utomator for **TAB**ular data (and medical images)
-![ML Pipeline](static/images_materials/MLPipeline.png)
-## Overview
+**No-code, self-hosted machine learning for research data.** Upload a training set and a test set in the
+browser; Simplatab trains and compares many models with cross-validation, evaluates them on your test set,
+explains their predictions and gives you the trained models. Your data never leaves the machine running it.
 
-- Simplatab is a comprehensive machine learning pipeline designed to automate the process of data bias detection, training, evaluation, and validatiion of typical ML classification models bundled with XAI shap analysis. It provides a robust framework for bias detection, feature selection, preprocessing, hyperparameter tuning, model evaluation, and XAI analysis ensuring efficient and accurate model performance.
+| Automator | Input | Models | Explanations |
+|---|---|---|---|
+| **Tabular Classification** | `Train.csv`, `Test.csv` | 7 classical (Logistic Regression, SVM, Random Forest, SGD, MLP, Decision Tree, XGBoost) and 4 deep learning (TabPFNv2, TabICL, TabTransformer, TabR) | SHAP |
+| **Image Classification** | `Train.zip`, `Test.zip` of medical or other images (DICOM, NIfTI, PNG, JPEG, BMP, TIFF) | 10 pretrained networks: ResNet-50, EfficientNet-B0/V2-S, ConvNeXt(-V2)-Tiny, ViT-Small, DeiT III-Small, Swin-Tiny, MaxViT-Tiny, DINOv2-Small | Grad-CAM |
 
-- Overall, Simplatab is a comprehensive platform for automated machine learning pipelines with support for both binary and multiclass classification tasks. This tool simplifies the process of building, training, and evaluating machine learning models through an intuitive web interface.
+Binary and multiclass problems are supported. Image segmentation and longitudinal forecasting are planned.
 
+## Quick start
 
-## Context
-
-Simplatab framework runs a complete Machine Learning Pipeline from **Data Bias assessment** to **model train** and **evaluation** and **XAI analysis** with Shap, for a variety of selectable models.
-Please navigate to the [Examples Folder](Example) where examplars Train.csv and Test.csv are given along with the outcomes after the execution of the tool
-
-
-## Features
-
-- **Automated Machine Learning**: Train and evaluate multiple classification models simultaneously
-- **Support for Binary and Multiclass Classification**: Automatically adapts to your dataset
-- **Comprehensive Model Evaluation**: ROC curves, precision-recall curves, confusion matrices, and more
-- **Feature Importance Analysis**: SHAP-based explainability for all models
-- **Deep Learning Classifiers**: TabPFNv2, TabTransformer, TabR and TabICL run through the same pipeline as the classical models
-- **Bias Detection**: Identify and assess potential biases in your datasets
-- **Model Export**: Save trained models for deployment in other applications
-- **Guided Web Interface**: Upload with instant checks, explained settings, live progress and a results dashboard
-- **Medical Image Classification**: 10 pretrained CNNs and vision transformers on DICOM, NIfTI, PNG and JPEG images, with Grad-CAM explanations (see [Image Classification Automator](#image-classification-automator))
-- **GPU Support**: a GPU Docker image for fast training on NVIDIA GPUs
-
-
-## Getting Started
-
-You can run the Machine Learning Automator using either Docker or as a standalone Python application.
-
-### Option 1: Using Docker by Pulling the Image (Recommended)
---- 
-**Just Pull the Image and run it :)**
-
-#### Prerequisites
-
-- [Docker](https://www.docker.com/products/docker-desktop) installed on your system
-
-The image is published for `linux/amd64` (Linux, Windows, Intel Macs) and `linux/arm64` (Apple Silicon Macs,
-ARM Linux): Docker pulls the one matching your machine.
-
-#### Steps
-
-1. Pull the Image
-```bash
-docker pull dimzaridis/simplatab-machine-learning-automator:latest
-```
----
-2. Run the Docker Image
 ```bash
 docker run -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:latest
 ```
-To run a specific version, replace `latest` with a version from the
-[Releases](https://github.com/dzaridis/simplatab-machine-learning-automator/releases) page (e.g. `1.1.1`).
+Open **http://localhost:7111/automl/**. The image runs on Linux, Windows and macOS (Intel and Apple Silicon).
 
-**With an NVIDIA GPU** (recommended to fine-tune the image networks): use the GPU image, tagged `latest-gpu`
-(or `<version>-gpu`). It needs the NVIDIA driver and the
-[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-on a Linux host (or Windows with WSL 2), and is built for `linux/amd64`:
+**NVIDIA GPU** (much faster to fine-tune image networks; needs the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)):
 ```bash
-docker pull dimzaridis/simplatab-machine-learning-automator:latest-gpu
 docker run --gpus all --shm-size=4g -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:latest-gpu
 ```
-`--shm-size` gives the image loaders the shared memory they need to keep the GPU busy. The configuration page
-of the image automator shows whether the GPU was detected.
----
-4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
 
+<details>
+<summary>Other ways to run it: a specific version, building the image, from source</summary>
 
-### Option 2: Using Docker by Building it from repository (Recommended)
---- 
-Using Docker is the easiest way to run the application without worrying about dependencies.
+- **A specific version**: replace `latest` with a version from the
+  [releases](https://github.com/dzaridis/simplatab-machine-learning-automator/releases) (`1.1.2`, or `1.1.2-gpu`).
+- **Build the image**: `docker build -t simplatab .` (GPU: `docker build --build-arg DEVICE=gpu -t simplatab:gpu .`).
+- **From source** (Python 3.9):
+  ```bash
+  git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
+  cd simplatab-machine-learning-automator
+  pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build
+  pip install -r requirements.txt
+  python app.py   # then open http://localhost:5000/automl/
+  ```
+</details>
 
-#### Prerequisites
+## How it works
 
-- [Docker](https://www.docker.com/products/docker-desktop) installed on your system
+1. **Upload** the training and test sets. They are checked in the browser (and on the server) before anything runs.
+2. **Configure**: choose the models and the validation settings; every setting is explained on the page.
+3. **Run**: follow each model live through the K-fold cross-validation and the external test.
+4. **Results**: compare metrics and curves, inspect SHAP or Grad-CAM explanations, download everything.
 
-#### Steps
+Each model is trained and validated with **stratified K-fold cross-validation** on the training set. For binary
+problems, the decision threshold that maximises the metric of your choice (balanced accuracy by default) is found
+on the validation folds. The final model is trained on the whole training set and evaluated once on the test set,
+with the mean threshold of the folds. The test set is never used for training or tuning.
 
-1. Clone the Repository
-```bash
-git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
-cd simplatab-machine-learning-automator
-```
----
-2. Build the Docker Image
-```bash
-docker build -t simplatab .
-```
----
-3. Run the Docker Image
-```bash
-docker run -p 7111:5000 simplatab
-```
+## Your data
 
-For the GPU image, build with `--build-arg DEVICE=gpu` (same Dockerfile) and run with `--gpus all`:
-```bash
-docker build --build-arg DEVICE=gpu -t simplatab:gpu .
-docker run --gpus all --shm-size=4g -p 7111:5000 simplatab:gpu
-```
+**Tabular**: two CSV files with the same columns:
+- a numeric `Target` column: `0`/`1` for binary problems (1 = positive class), `0, 1, …, K-1` for multiclass;
+- numeric and categorical features; an optional `ID` (or `patient_id`) column used as an identifier;
+- rows with missing values are removed; categorical columns whose values differ between the files are dropped.
 
-4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
+Optional steps: data bias assessment on a feature of your choice, correlation-based feature selection
+(featurewiz), randomized or exhaustive hyperparameter search.
 
-### Option 3: Running as a Python Application
----
-#### Steps
-1. Clone the Repository
-```bash
-git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
-cd simplatab-machine-learning-automator
-```
+**Images**: two zip files (up to 5 GB each) with **one folder per class**, e.g. `Train.zip/benign/…`,
+`Train.zip/malignant/…`; sub-folders (one per patient) are allowed and every image file is one sample.
+- Medical formats: DICOM (compressed, multi-frame, colour, MONOCHROME1, without extension), NIfTI, 16-bit PNG/TIFF.
+  CT windows (lung, soft tissue, bone, brain) or the DICOM window; 3D volumes reduced to the middle slice or the
+  maximum intensity projection; images padded to a square and resized to 224 × 224.
+- **Feature extraction** (fast, CPU friendly): the pretrained network is frozen and a logistic regression learns
+  your classes from its features. **Fine-tuning** (GPU recommended): the whole network is retrained with data
+  augmentation and early stopping.
+- For binary problems, choose the positive class (the class to detect) on the configuration page.
+- Keep all the images of a patient in the same zip; the upload warns about identical images in both zips.
 
-2. Create and activate a virtual environment (optional but recommended, Python 3.9 or newer):
-```bash
-python -m venv simplatab
-# On Windows
-simplatab\Scripts\activate
-# On macOS/Linux
-source simplatab/bin/activate
-```
+## What you get
 
+Everything is written to the `Materials` folder, shown on the results page and downloadable as one zip:
 
-3. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
-
-4. Create a folder named "Materials" in the project parent folder
-```bash
-mkdir Materials
-```
-
-5. Run API
-```bash
-python app.py
-```
-
-6. Access the web interface at ```http://localhost:5000/automl/```
-
-## Versions and Releases
-
-Every push to `main` whose tests pass is released automatically by the CI (`.github/workflows/cicd.yaml`):
-
-1. The version is the latest release version plus `0.0.1` (e.g. `1.1.1` → `1.1.2`), computed by
-   [`ci/next_version.sh`](ci/next_version.sh).
-2. The Docker image is built for `linux/amd64` and `linux/arm64` and published as
-   `dimzaridis/simplatab-machine-learning-automator:<version>` and `:latest`; the GPU image (`linux/amd64`) as
-   `:<version>-gpu` and `:latest-gpu`.
-3. A Git tag and a GitHub release with the same `<version>` are created, with notes listing the merged changes.
-
-The version is shown at the bottom of the web interface (`dev` when running from source). To move to a new
-minor or major version, create a tag such as `1.2.0` on `main` (for example with a release on GitHub): the next
-push to `main` is then released as `1.2.1`.
-
-## Using the Machine Learning Automator
-### Dataset Format
---- 
-**Your dataset should be prepared as follows:**
-
-File Format: CSV files named Train.csv and Test.csv
-Target Column: A column named **Target** containing:
-
-- For binary classification: Values of 0 and 1 (1 is the positive class)
-- For multiclass classification: Consecutive integer class labels starting at 0 (0, 1, 2, ..., K-1)
-- Train.csv must contain every class, and Test.csv must only use classes of Train.csv. Other labels
-  (e.g. 1/2 or text) must be recoded: the metrics assume this numbering, and the parameters page
-  shows a warning when the uploaded Target column does not follow it.
-
-
-- Features: Any number of numeric or categorical columns
-
-### Step-by-Step Usage
----
-The web interface opens on a landing page listing the **automators**. **Tabular Classification** and
-**Image Classification** (see [below](#image-classification-automator)) are available. **Image Segmentation** and
-**Longitudinal Forecasting** are shown as *Coming soon*, with pages describing the data they will take and what
-they will produce. Both available automators guide you through four steps, shown at the top of every page
-(described here for tabular data):
-
-1. **Upload.** Drag and drop (or browse for) `Train.csv` and `Test.csv`. The files are checked in the browser
-   before anything is sent: the `Target` column, the class labels, missing values, the columns shared by the two
-   files and the categorical values. Problems that would stop the pipeline block the upload; the others are shown
-   as warnings. A preview of both files is shown, with the `Target` column first.
-
-2. **Configure.** Every setting explains what it does, and the defaults are a good starting point:
-   - **Models:** the classical models (all selected by default) and the deep learning models (TabPFNv2,
-     TabTransformer, TabR, TabICL; off by default, see [Deep Learning Models](#deep-learning-models)).
-   - **Cross-validation folds:** the number of stratified folds, at most the size of the smallest class.
-   - **Hyperparameter search:** on or off; *Randomized* tries 40 combinations per model, *Exhaustive* tries
-     them all.
-   - **Feature correlation limit:** of two features correlated above this limit, only one is kept.
-   - **Metric for threshold optimisation** (binary targets only): the probability threshold is chosen to
-     maximise this metric. The default is **Balanced Accuracy**.
-   - **Data bias assessment:** checks the outcome balance across the groups of a categorical feature.
-
-   A summary of your data (rows, features, class distribution) stays visible next to the settings.
-
-3. **Run.** The pipeline runs in the background and the page follows it live: the current phase, the
-   progress, the state of each model in the K-fold and in the external test, and the log. Models that fail
-   are skipped without stopping the run, and the reason is shown. Only one run at a time is possible.
-
-4. **Results.** A dashboard with the best model on the test set, the test and K-fold metrics tables,
-   the ROC and precision-recall curves, the confusion matrices and the SHAP plots of each model.
-   The trained pipelines and all the output files can be downloaded individually or as one zip archive.
-
-> **Note:** each run replaces the results of the previous one in the `Materials` folder. When results exist,
-> the configuration page says so and links to their download.
-
-The interface has light and dark themes (following the system setting by default) and works on small screens.
-All its assets are served locally, so it works without internet access.
-
-
-
-## Image Classification Automator
-
-Classifies medical images with pretrained deep learning networks, following the same workflow as the tabular
-automator: stratified K-fold cross-validation with decision threshold optimisation, then an external evaluation on
-a test set that you provide and that is never used for training.
-
-### Data
-Two zip files, **Train.zip** and **Test.zip** (up to **5 GB each**), with **one folder per class**; the folder
-names are the class names. A single wrapping folder (e.g. `Train/`) is fine, and class folders may contain
-sub-folders (e.g. one per patient): every image file is one sample.
-```
-Train.zip
-├── benign/
-│   ├── case_001.dcm
-│   └── patient_07/slice_12.dcm
-└── malignant/
-    ├── case_104.nii.gz
-    └── case_105.png
-```
-Keep all the images of a patient in the same zip file, otherwise the test metrics are optimistic (the upload
-warns about identical files in both zips).
-
-### Medical image support
-| Format | Details |
+| Output | Files |
 |---|---|
-| DICOM (`.dcm`, or no extension) | Uncompressed and compressed (JPEG, JPEG Lossless, JPEG-LS, JPEG 2000); modality LUT (e.g. Hounsfield units); MONOCHROME1 inverted; colour (RGB/YBR) images; multi-frame |
-| NIfTI (`.nii`, `.nii.gz`) | 2D and 3D (4D: first volume), reoriented to RAS |
-| PNG, TIFF | 8 and 16-bit, grayscale or colour |
-| JPEG, BMP | 8-bit, grayscale or colour |
+| Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity) | `<K>_fold_results.xlsx` (mean ± SD), `test_results.xlsx` |
+| Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/` |
+| Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images) |
+| Trained models | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images) |
+| Image predictions and classes | `Predictions/<network>_test_predictions.csv`, `classes.csv` |
 
-- **Intensity window**: CT presets (lung, soft tissue, bone, brain) for CT DICOM and NIfTI files; by default the
-  window stored in the DICOM header, else the 0.5–99.5 percentiles of each image.
-- **3D volumes** (NIfTI, multi-frame DICOM): reduced to the middle axial slice or to the maximum intensity projection.
-- Every image is converted to 8 bits, padded to a square (no distortion) and resized to 224 × 224 pixels.
+Each run replaces the results of the previous one.
 
-### Networks
-| Network | Type | Pretraining |
-|---|---|---|
-| ResNet-50 | CNN | ImageNet-1k (2021 training recipe) |
-| EfficientNet-B0 | CNN | ImageNet-1k |
-| EfficientNetV2-S | CNN | ImageNet-21k |
-| ConvNeXt-Tiny | CNN | ImageNet-22k |
-| ConvNeXt V2-Tiny | CNN | Self-supervised (FCMAE) + ImageNet-22k |
-| ViT-Small | Transformer | ImageNet-21k |
-| DeiT III-Small | Transformer | ImageNet-22k |
-| Swin-Tiny | Transformer | ImageNet-22k |
-| MaxViT-Tiny | Hybrid CNN / transformer | ImageNet-1k |
-| DINOv2-Small | Transformer | Self-supervised (LVD-142M) |
+## Using the trained models
 
-The weights come from [timm](https://github.com/huggingface/pytorch-image-models) and are included in the Docker
-images.
+The results page shows ready-to-copy code for your best model. The models need the Simplatab code and library
+versions that trained them:
+```bash
+git clone --branch 1.1.2 https://github.com/dzaridis/simplatab-machine-learning-automator.git   # the version shown in the app
+cd simplatab-machine-learning-automator
+pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+unzip ~/Downloads/pipeline_results.zip -d Materials
+```
 
-### Training modes
-- **Feature extraction** (default without GPU): the pretrained network is frozen and turns each image into a
-  feature vector; a standardised, class-weighted logistic regression (regularisation chosen by an internal 3-fold
-  cross-validation) learns the classes. Minutes on a CPU.
-- **Fine-tuning** (default with a GPU): the whole network is trained (AdamW, cosine schedule, class-weighted loss,
-  mixed precision on GPU) with data augmentation (random crops, small rotations, brightness/contrast; flips are
-  optional, since left and right matter in many medical images). In each fold, 10% of the training images are held
-  out for early stopping; the final network is trained on all of Train.zip for the median best number of epochs.
+**Tabular**: the `.pkl` file is the whole pipeline (feature selection, preprocessing, classifier).
+```python
+import json, pickle
+import pandas as pd
 
-For binary problems, choose the **positive class** (the class to detect): it is class 1 in the metrics and the
-decision threshold applies to its probability.
+data = pd.read_csv("new_samples.csv")                    # same columns as Train.csv
+if "ID" in data.columns:
+    data = data.set_index("ID")                          # identifier, not a feature
+data = data.dropna().drop(columns=["Target"], errors="ignore")
 
-### Outputs
-In the `Materials` folder, shown on the results page:
-- `test_results.xlsx`, `<K>_fold_results.xlsx`, ROC and precision-recall curves, confusion matrices (as for tabular data);
-- `classes.csv`: the number of each class in the confusion matrices and curves;
-- `GradCAM/<network>/`: Grad-CAM heatmaps of test images for each class (the most confident errors first);
-- `Predictions/<network>_test_predictions.csv`: each test image with its true class, predicted class and probabilities;
-- `Models/<network>.pt`: the trained network with its classes, threshold and preprocessing. To predict on new images:
+with open("Materials/Models/XGBoost_pipeline.pkl", "rb") as f:
+    model = pickle.load(f)
+with open("Materials/Models/thresholds.json") as f:
+    threshold = json.load(f)["XGBoost"]                  # None for multiclass
+
+probabilities = model.predict_proba(data)
+predictions = (probabilities[:, 1] > threshold).astype(int) if threshold is not None else probabilities.argmax(1)
+```
+
+**Images**: the `.pt` file holds the network, its classes, threshold and image preprocessing.
 ```python
 from Helpers.image.inference import load_model, predict
+
 model, info = load_model("Materials/Models/DINOv2-Small.pt")
-predict(model, info, ["scan_001.dcm", "scan_002.png"])
+for row in predict(model, info, ["scan_001.dcm", "scan_002.nii.gz", "scan_003.png"]):
+    print(row["file"], row["predicted_class"], row["probabilities"])
 ```
+Run the code from the cloned folder (it imports the `Helpers` package), or without installing anything in the
+Docker image: `docker run --rm -v "$PWD:/work" -w /work -e PYTHONPATH=/app dimzaridis/simplatab-machine-learning-automator:1.1.2 python predict.py`.
 
-## Example Datasets
+## Notes on the deep learning models
 
-The repository includes example datasets for both binary and multiclass classification tasks:
+- **TabPFNv2 and TabICL** are pretrained foundation models (no training); TabPFNv2 is limited to 10,000 samples,
+  500 features and 10 classes. **TabTransformer** and **TabR** are trained with early stopping.
+- Pretrained weights (TabPFNv2, TabICL and the 10 image networks) are included in the Docker images; from source
+  they are downloaded from the Hugging Face Hub on first use.
+- A GPU is used automatically when available. A model that cannot run on a dataset is skipped and reported,
+  and the others still complete.
 
-examples/binary/Train.csv and examples/binary/Test.csv: Binary classification example (Breast Cancer)  
-examples/multiclass/Train.csv and examples/multiclass/Test.csv: Multiclass classification example (IRIS multiclass)  
+## Releases
 
-- Their respective results are located in Examples\BreastCancerExample (binary)
-- Examples\IrisExample (Multiclass)
+Every push to `main` whose tests pass is released automatically: the version is the latest release plus `0.0.1`,
+and the Docker images (`<version>`, `latest`, `<version>-gpu`, `latest-gpu`) and the GitHub release get the same
+version. For a new minor or major version, create a tag such as `1.2.0`; the next push is released as `1.2.1`.
 
----
+## Development
 
-## Outputs
-The outputs will be saved in the `Materials` folder:
-- `ROC_CURVES.png`: ROC curves for each algorithm on the test set.
-- `Precision-Recall curves.png`:Precision-Recall curves for each algorithm on the test set.
-- `ShapFeatures` folder: A ShapFeatures folder will be created, Inside model subfolders will be created which contain 3 kind of plots  
-    - `Summary Plot`: Top 10 features and their impact on model output
-    - `BeeSwarm Plot`: Similar to summary plot but also takes into account the sum of the shap values for all features not just the top 10
-    - `Heatmap Plot`: Contains information regarding the impact of each feature (top 10 and the rest as a sum) and how they impact the probabilities of the model's outcome
-- Excel files:
-  - Metrics for the algorithm on the internal K-Fold.
-  - Metrics for the algorithm on the external set.
-- `Models` folder: Pickle files containing the models evaluated on the external data. These pipelines can be used directly without manual feature selection or preprocessing.
-- `Confusion_Matrices` folder: The confusion matrices for each model on the internal k-fold (mena values of tp, fp, tn , fn) and external set are provided as images
-
-## Main Advantages
-- Data Bias Detection
-- Automated feature selection & preprocessing.
-- K-Fold Stratified Cross-validation on `Train.csv`.
-- Automated threshold calculation based on validation splits from K-Fold.
-- Hyperparameter tuning on the stratified K-Fold.
-- Testing on `Test.csv` with the best hyperparameters from the internal K-Fold and the average threshold across folds.
-- Reporting of five metrics on both the internal K-Fold and external set (`Test.csv`):
-  - AUC
-  - F-Score
-  - Accuracy
-  - Sensitivity
-  - Specificity
-  - Balanced Accuracy
-- ROC and PR Curves
-- SHAP Analysis on the external set to identify significant features for Model's Outcomes.
-
-Shap Analysis consists of 3 plots (summary plot, beeswarm, heatmap)
-
-## Key Concepts
-- **Data Bias Detection**: User sets a column of his data to check whether there is a bias in respect to the Target column
-- **Hyperparameters**: Set before training to control the behavior of the training algorithm.
-- **Cross-validation**: Evaluates model performance by splitting data into multiple folds and training/testing on different combinations.
-- **Pipeline**: A sequence of data processing and model training steps applied consistently across all models.
-- **XAI Analysis** with Shapley Library
-
-## Feature Selection
-Identifies and retains important features based on correlation. Supports various strategies:
-- **featurewiz** (Default): Based on correlation matrix and XGBoost selection.
-  - `corr_limit` (default: 0.6)
-- **rfe**: Recursive Feature Elimination using logistic regression.
-  - `n_features_to_select` (default: 5)
-- **lasso**
-- **random_forest**: Based on correlation matrix and XGBoost selection.
-- **xgboost**: Based on correlation matrix and XGBoost selection.
-
-## Preprocessing
-Prepares data for training:
-- **Tabular Data**: One-hot encoding.
-- **Numeric Data**: Z-Score normalization.
-
-## Deep Learning Models
-Four deep learning classifiers for tabular data can be selected next to the classical models. They are
-scikit-learn compatible estimators (`Helpers/dl_classifiers.py`), so they go through exactly the same flow:
-feature selection, preprocessing, (randomized) grid search, K-fold threshold optimization, external test,
-ROC/PR curves, SHAP analysis and saved pipelines.
-
-| Model | Type | Reference |
-|-------|------|-----------|
-| **TabPFNv2** | Pretrained foundation model, in-context learning (no training) | Hollmann et al., *Accurate predictions on small data with a tabular foundation model*, Nature 2025 |
-| **TabICL** | Pretrained foundation model, in-context learning (no training) | Qu et al., *TabICL: A Tabular Foundation Model for In-Context Learning on Large Data*, ICML 2025 |
-| **TabTransformer** | Trained from scratch | Huang et al., *TabTransformer: Tabular Data Modeling Using Contextual Embeddings*, 2020 |
-| **TabR** | Trained from scratch, retrieval-augmented | Gorishniy et al., *TabR: Tabular Deep Learning Meets Nearest Neighbors*, ICLR 2024 |
-
-- **Pretrained weights**: TabPFNv2 ([tabpfn](https://github.com/PriorLabs/TabPFN)) and TabICL ([tabicl](https://github.com/soda-inria/tabicl))
-  download their checkpoints from the HuggingFace Hub on first use. The Docker image downloads them at build time.
-  For offline machines, place the TabPFN checkpoint in the folder set by `TABPFN_MODEL_CACHE_DIR` and the TabICL
-  checkpoint in the HuggingFace cache. TabPFNv2 is limited to 10,000 training samples, 500 features and 10 classes.
-- **TabTransformer**: columns with few distinct values (e.g. the one-hot encoded categorical features) are
-  categorical tokens contextualized by the transformer; the other columns are continuous. As in the original
-  architecture, on datasets without categorical features it reduces to an MLP.
-- **TabR**: the training data is the retrieval pool at prediction time, so it is stored in the saved pipeline.
-- **Training**: TabTransformer and TabR use AdamW with early stopping on a stratified 15% validation split of the training data.
-- **Hardware**: a GPU is used automatically when available. On CPU these models are slower than the classical ones,
-  especially with grid search enabled.
-- **SHAP**: computed with a Kernel explainer on a bounded budget (14 test samples, 5 background samples,
-  150 coalitions per sample) to keep the analysis tractable on CPU.
-- A model that cannot run on the dataset (e.g. beyond the TabPFNv2 limits, or its weights cannot be downloaded)
-  is skipped and reported in `Materials/error_log.log`; the other models still complete.
-
-## Hyperparameter Tuning & Training
-- **Hyperparameter Tuning**: Uses exhaustive grid search to find the best hyperparameters.
-  Candidates are scored by their cross-validated AUC (macro one-vs-rest AUC for multiclass targets).
-- **Training**: Trains the model on the training data.
-
-## Evaluation
-- **Threshold Optimizer**: Finds the optimal threshold on the train set for each fold based on the AUC metric.
-- **Metrics**: Evaluates the model on validation data on each fold using:
-  - AUC
-  - F-Score
-  - Accuracy
-  - Sensitivity
-  - Specificity
-  - Balanced Accuracy
-
-## Testing on the External Set
-- **Retraining**: Models are retrained on the entire `Train.csv` dataset with hyperparameters set based on K-Fold selection.
-- **Threshold**: Set as the average of the thresholds from the K-Fold.
-- **Metrics**: Computed on the `Test.csv` for the optimal threshold.
-- **Shapley Analysis**: Performed on a fraction of the test set (up to 100 instances).
-- **ROC Curves**: Reported for each algorithm on the testing dataset.
-
+```bash
+python -m unittest discover tests
+```
+Code layout: `app.py` (web app), `Helpers/` (tabular pipeline), `Helpers/image/` (image pipeline), `web/`
+(automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning).
+`Examples/` holds the outputs of example runs on the Iris and breast cancer datasets.
 
 ## Authors
-Main Work Implemented by:  
-- **Dimitrios Zaridis** (corresponding), M.Eng, PhD Student @ National Technical University of Athens
-- **Eugenia Mylona**, Ph.D
-- **Vasileios B. Pezoulas**, Ph.D
 
-Assistance by:  
-- **Charalampos Kalantzopoulos**, M.Sc
-- **Nikolaos S. Tachos**, Ph.D
-- **Dimitrios I. Fotiadis**, Professor of Biomedical Technology, University of Ioannina
+**Dimitrios Zaridis** (corresponding author), National Technical University of Athens; **Eugenia Mylona**, PhD;
+**Vasileios B. Pezoulas**, PhD. With the assistance of **Charalampos Kalantzopoulos**, MSc; **Nikolaos S. Tachos**,
+PhD; and **Dimitrios I. Fotiadis**, Professor of Biomedical Technology, University of Ioannina.
 
+## License
 
+[MIT](LICENSE)

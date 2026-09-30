@@ -11,6 +11,7 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.tree import DecisionTreeClassifier
 from xgboost import XGBClassifier
 import os
+import json
 from Helpers import pipelines
 from Helpers.dl_classifiers import (TabPFNv2Classifier, TabICLClassifier, TabTransformerClassifier,
                                     TabRClassifier, DEEP_LEARNING_CLASSIFIERS)
@@ -418,6 +419,7 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
     pipeline_dict_inf = {}
     params_inf= {}
     scores_inf = {}
+    thresholds_inf = {}
     for cls, hp, nm in zip(classifiers, hypers, names):
         if nm not in params_dict:  # skipped during the K-fold training
             continue
@@ -450,6 +452,7 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
                 cnt += 1
                 meas += val
             average_threshold = meas/cnt if cnt!=0 else 0.5
+        thresholds_inf[nm] = None if is_multiclass else float(average_threshold)
 
         # Compute metrics on that threshold
         mr = behave_metrics.Metrics(scores, y_test)
@@ -486,6 +489,10 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
             with open(filename, "wb") as file:
                 pickle.dump(pipeline, file)
             print(f"Saved {name} pipeline to {filename}")
+        # Decision thresholds of binary problems: class 1 is predicted when its probability exceeds
+        # the threshold (the mean of the thresholds optimised on the K-fold validation sets)
+        with open(os.path.join(save_path_for_models, "thresholds.json"), "w") as file:
+            json.dump(thresholds_inf, file, indent=2)
     except Exception as e:
         error_message = f"Error here: {e}\n"
         with open(os.path.join("Materials", "Model_save_error_log.txt"), "a") as file:
