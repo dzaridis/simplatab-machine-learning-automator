@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Configure · Image Classification{% endblock %}
+
+{% block content %}
+{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2, automator) }}
+{% set binary = summary.classes | length == 2 %}
+{% set medical = summary.kinds.get('dicom') or summary.kinds.get('nifti') %}
+
+<div class="container pb-4">
+    <form id="params-form" action="{{ url_for('image_parameters') }}" method="post" novalidate>
+        <div class="row g-4">
+            <div class="col-lg-8 order-2 order-lg-1">
+                {% if previous_results %}
+                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
+                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+                        <div><div class="fw-semibold">Starting this run replaces the previous results</div>
+                            <div class="small-muted">Download them first if you want to keep them.</div></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_all') }}">
+                        <i class="bi bi-file-earmark-zip me-1" aria-hidden="true"></i>Download previous results</a>
+                </div>
+                {% endif %}
+
+                {% if summary.warnings %}
+                <div class="alert alert-warning d-flex gap-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
+                    <div><div class="fw-semibold">Check your data</div>
+                        <ul class="mb-0 ps-3">{% for warning in summary.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Networks</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">All networks are pretrained on millions of images and adapted to yours. Selecting several lets you compare them on the same folds.</p>
+                        {% for group, title, subtitle in [
+                            ("cnn", "Convolutional networks", "Learn local patterns (edges, textures, shapes); robust with small datasets."),
+                            ("transformer", "Vision transformers", "Relate distant image regions with attention; strongest with more data or self-supervised pretraining."),
+                        ] %}
+                        <div class="{% if not loop.first %}mt-4{% endif %}">
+                            <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+                                <div>
+                                    <h2>{{ title }}</h2>
+                                    <p class="help">{{ subtitle }}</p>
+                                </div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Select {{ title }}">
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="1">Select all</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="0">None</button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                {% for backbone in backbones if backbone.family == group %}
+                                <div class="col-md-6">
+                                    <label class="option-card">
+                                        <input type="checkbox" name="{{ backbone.key }}" value="true" data-group="{{ group }}"
+                                               {% if backbone.default %}checked{% endif %}>
+                                        <span class="option-body">
+                                            <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                            <span>
+                                                <span class="title d-block">{{ backbone.name }}{% if backbone.default %} <span class="badge rounded-pill text-bg-light border fw-medium ms-1">Recommended</span>{% endif %}</span>
+                                                <span class="desc d-block">{{ backbone.description }}</span>
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one network.</div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-lightning-charge me-2 text-primary" aria-hidden="true"></i>Training</div>
+                    <div class="settings-section">
+                        <h2 class="mb-1">How the networks learn</h2>
+                        <p class="help mb-3">
+                            {% if gpu %}<i class="bi bi-gpu-card me-1 text-success" aria-hidden="true"></i>GPU detected: {{ gpu }}. Fine-tuning is practical.
+                            {% else %}<i class="bi bi-cpu me-1" aria-hidden="true"></i>No GPU detected ({{ cpu_count }} CPU cores): feature extraction is recommended. Fine-tuning can take hours; use the GPU Docker image for it.{% endif %}
+                        </p>
+                        <div class="row g-2">
+                            {% for value, title, desc, speed in [
+                                ("features", "Feature extraction", "The pretrained network is kept as is and turns each image into features; a logistic regression learns your classes from them. Robust with a few hundred images.", "Minutes, even on CPU"),
+                                ("finetune", "Fine-tuning", "The whole network is retrained on your images, with augmentation and early stopping. Usually more accurate with enough images.", "Hours on CPU, minutes on GPU"),
+                            ] %}
+                            <div class="col-md-6">
+                                <label class="option-card">
+                                    <input type="radio" name="mode" value="{{ value }}" {% if (value == 'finetune') == (gpu is not none) %}checked{% endif %}>
+                                    <span class="option-body">
+                                        <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                        <span>
+                                            <span class="title d-block">{{ title }}</span>
+                                            <span class="desc d-block">{{ desc }}</span>
+                                            <span class="speed"><i class="bi bi-clock" aria-hidden="true"></i>{{ speed }}</span>
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div id="finetune-settings">
+                        <div class="settings-section">
+                            <div class="row g-3">
+                                <div class="col-sm-6 col-xl-3">
+                                    <label class="form-label fw-semibold" for="epochs">Maximum epochs</label>
+                                    <input type="number" class="form-control" id="epochs" name="epochs" value="20" min="1" max="200">
+                                </div>
+                                <div class="col-sm-6 col-xl-3">
+                                    <label class="form-label fw-semibold" for="patience">Early-stopping patience</label>
+                                    <input type="number" class="form-control" id="patience" name="patience" value="5" min="1" max="50">
+                                </div>
+                                <div class="col-sm-6 col-xl-3">
+                                    <label class="form-label fw-semibold" for="learning_rate">Learning rate</label>
+                                    <select class="form-select" id="learning_rate" name="learning_rate">
+                                        {% for value in ["0.00003", "0.0001", "0.0003", "0.001"] %}<option value="{{ value }}" {% if value == "0.0001" %}selected{% endif %}>{{ value }}{% if value == "0.0001" %} (default){% endif %}</option>{% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-sm-6 col-xl-3">
+                                    <label class="form-label fw-semibold" for="batch_size">Batch size</label>
+                                    <select class="form-select" id="batch_size" name="batch_size">
+                                        {% for value in [8, 16, 32, 64] %}<option value="{{ value }}" {% if value == 32 %}selected{% endif %}>{{ value }}</option>{% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <p class="help mt-3 mb-0">Each fold holds out 10% of its training images to stop when they stop improving; the final network is then trained on all of Train.zip for the median best number of epochs. Lower the batch size if the GPU runs out of memory.</p>
+                        </div>
+                        <div class="settings-section">
+                            <h2 class="mb-1">Data augmentation</h2>
+                            <p class="help mb-3">Random variations of the training images, so the network does not memorise them. All images are also randomly cropped by up to 20%.</p>
+                            <div class="row g-2">
+                                {% for key, title, desc, checked in [
+                                    ("rotation", "Small rotations", "Up to ±10°, for positioning differences.", true),
+                                    ("intensity", "Brightness and contrast", "±20%, for scanner and exposure differences.", true),
+                                    ("horizontal_flip", "Horizontal flips", "Off by default: left and right matter in many medical images (e.g. chest X-rays).", false),
+                                    ("vertical_flip", "Vertical flips", "Only for images without an up/down orientation (e.g. histopathology).", false),
+                                ] %}
+                                <div class="col-md-6">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="{{ key }}" name="{{ key }}" value="true" {% if checked %}checked{% endif %}>
+                                        <label class="form-check-label fw-semibold" for="{{ key }}">{{ title }}</label>
+                                        <div class="small-muted">{{ desc }}</div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-sliders me-2 text-primary" aria-hidden="true"></i>Validation</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="k_folds">Cross-validation folds</label></h2>
+                                <p class="help">Train.zip is split into K stratified folds; each network is trained on K-1 folds and validated on the remaining one, K times.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="{{ [5, summary.min_class_count] | min }}" min="2" max="20" required
+                                       data-min-class="{{ summary.min_class_count }}" aria-describedby="k-folds-feedback">
+                                <div class="form-text" id="k-folds-feedback">At most {{ [20, summary.min_class_count] | min }}: the smallest class has {{ summary.min_class_count }} training images.</div>
+                            </div>
+                        </div>
+                    </div>
+                    {% if binary %}
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="positive_class">Positive class</label></h2>
+                                <p class="help">The class to detect (e.g. the disease): sensitivity is measured on it and it is class 1 in the confusion matrices.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="positive_class" name="positive_class">
+                                    {% for c in summary.classes %}<option value="{{ c }}" {% if c == summary.positive_class %}selected{% endif %}>{{ c }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="optimization_metric">Metric for threshold optimisation</label></h2>
+                                <p class="help">
+                                    {% if binary %}The probability threshold for the positive class is chosen on the validation folds to maximise this metric, then applied to Test.zip.
+                                    {% else %}Not used for multiclass problems: the predicted class is the most probable one.{% endif %}
+                                </p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="optimization_metric" name="optimization_metric" aria-describedby="metric-help" {% if not binary %}disabled{% endif %}>
+                                    {% for name, description in threshold_metrics %}<option value="{{ name }}" data-description="{{ description }}">{{ name }}</option>{% endfor %}
+                                </select>
+                                <div class="form-text" id="metric-help">{{ threshold_metrics[0][1] }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header py-3"><i class="bi bi-heart-pulse me-2 text-primary" aria-hidden="true"></i>Medical image preparation</div>
+                    <div class="settings-section">
+                        <p class="help mt-0">Every image is converted to 8 bits, padded to a square without distortion and resized to 224 × 224.
+                            {% if summary.has_high_bit_depth %}High bit-depth images (DICOM, NIfTI, 16-bit PNG/TIFF) are mapped with the settings below; without a window, the 0.5–99.5 percentiles of each image are used.{% endif %}
+                            MONOCHROME1 DICOM images are inverted.</p>
+                    </div>
+                    {% if medical %}
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="window">Intensity window</label></h2>
+                                <p class="help">{% if summary.has_ct %}CT windows (center / width in Hounsfield units) select the range that shows the tissue of interest; they apply to CT DICOM and NIfTI files. Automatic uses the window stored in the DICOM header, else the image percentiles.{% else %}DICOM windows stored in the file headers are used when present.{% endif %}</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="window" name="window">
+                                    {% for value, label in window_labels if summary.has_ct or value == 'auto' %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if summary.has_volumes %}
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="volume">3D volumes</label></h2>
+                                <p class="help">Volumes (3D NIfTI, multi-frame DICOM) are reduced to one 2D image: the middle (axial) slice, or the maximum intensity projection, which shows bright structures from all slices.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="volume" name="volume">
+                                    {% for value, label in volume_labels %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="col-lg-4 order-1 order-lg-2">
+                <div class="card p-4" style="position: sticky; top: 5.5rem;">
+                    <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
+                    <div class="row g-2 mb-3 text-center">
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_images }}</div><div class="small-muted">train images</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.test_images }}</div><div class="small-muted">test images</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.classes | length }}</div><div class="small-muted">classes</div></div></div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold small">{{ 'Binary' if binary else 'Multiclass' }} classification</span>
+                        <span class="small-muted">train images per class</span>
+                    </div>
+                    <div class="d-grid gap-2 mb-3" aria-label="Training images per class">
+                        {% for row in summary.class_counts %}
+                        {% set pct = (100 * row.train / summary.train_images) | round(1) %}
+                        <div class="dist-row">
+                            <span class="text-truncate" style="max-width: 7rem" title="{{ row['class'] }}">{{ row['class'] }}</span>
+                            <div class="dist-track" role="img" aria-label="{{ pct }} percent"><div class="dist-fill" style="width: {{ pct }}%"></div></div>
+                            <span class="tabular-nums small-muted">{{ row.train }} · {{ pct }}%</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="small mb-1 fw-semibold">Files</div>
+                    <div class="d-flex flex-wrap gap-1 mb-3">
+                        {% for kind, count in summary.kinds.items() %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ {'dicom': 'DICOM', 'nifti': 'NIfTI', 'raster': 'PNG/JPEG/TIFF'}[kind] }} · {{ count }}</span>{% endfor %}
+                        {% for modality in summary.modalities %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ modality }}</span>{% endfor %}
+                        {% if summary.has_volumes %}<span class="badge rounded-pill text-bg-light border fw-medium">3D volumes</span>{% endif %}
+                    </div>
+                    {% if summary.size_range %}<div class="small-muted mb-3">Image sides from {{ summary.size_range[0] }} to {{ summary.size_range[1] }} pixels</div>{% endif %}
+                    <a class="small" href="{{ url_for('image') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <div class="container px-0 d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between">
+                <div class="small-muted d-none d-sm-block" id="run-summary" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary btn-lg" id="run-btn">
+                    <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run pipeline
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/image_parameters.js') }}"></script>
+{% endblock %}

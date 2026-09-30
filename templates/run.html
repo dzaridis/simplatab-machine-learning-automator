@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% from "tabular/_macros.html" import page_header %}
-{% block title %}Running · Tabular Classification{% endblock %}
+{% from "_macros.html" import page_header %}
+{% block title %}Running · {{ automator.name }}{% endblock %}
 
 {% block content %}
-{{ page_header("Running the pipeline", "You can leave this page open: it updates live. Closing it does not stop the run.", 3) }}
+{{ page_header("Running the pipeline", "You can leave this page open: it updates live. Closing it does not stop the run.", 3, automator) }}
 
 <div class="container pb-5" id="run-root" data-status-url="{{ url_for('status') }}">
     <div class="alert alert-success d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between {% if status.state != 'done' %}d-none{% endif %}"
          id="done-panel" role="status">
         <div class="d-flex gap-3 align-items-center">
             <i class="bi bi-check-circle-fill fs-3" aria-hidden="true"></i>
-            <div><div class="fw-semibold">The pipeline finished</div><div>Metrics, plots and trained models are ready.</div></div>
+            <div><div class="fw-semibold">The pipeline finished</div><div>Metrics, plots and trained {{ 'networks' if automator.slug == 'image-classification' else 'models' }} are ready.</div></div>
         </div>
         <a class="btn btn-primary" href="{{ url_for('results') }}">View results<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></a>
     </div>
@@ -20,7 +20,7 @@
             <i class="bi bi-x-octagon-fill fs-3" aria-hidden="true"></i>
             <div><div class="fw-semibold">The pipeline stopped with an error</div><div id="error-message">{{ status.message }}</div></div>
         </div>
-        <a class="btn btn-outline-danger" href="{{ url_for('parameters') }}">Back to configuration</a>
+        <a class="btn btn-outline-danger" href="{{ url_for('image_parameters' if automator.slug == 'image-classification' else 'parameters') }}">Back to configuration</a>
     </div>
 
     <div class="card p-4 mb-4">
@@ -36,14 +36,14 @@
             <div class="progress-bar" style="width: {{ status.progress }}%"></div>
         </div>
         <ul class="phase-list" id="phases">
-            {% for key, label in phases %}<li data-phase="{{ key }}">{{ label }}</li>{% endfor %}
+            {% for key, label in status.phases %}<li data-phase="{{ key }}">{{ label }}</li>{% endfor %}
         </ul>
     </div>
 
     <div class="card mb-4">
         <div class="card-header py-3 d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Models</span>
-            <span class="small-muted fw-normal">Each model is trained with K-fold cross-validation, then evaluated on Test.csv</span>
+            <span><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>{{ 'Networks' if automator.slug == 'image-classification' else 'Models' }}</span>
+            <span class="small-muted fw-normal">Each {{ 'network' if automator.slug == 'image-classification' else 'model' }} is trained with K-fold cross-validation, then evaluated on the test set</span>
         </div>
         <div class="table-responsive">
             <table class="table metric-table mb-0">
@@ -64,5 +64,5 @@
 
 {% block scripts %}
 <script id="initial-status" type="application/json">{{ status | tojson }}</script>
-<script src="{{ url_for('static', filename='js/tabular_run.js') }}"></script>
+<script src="{{ url_for('static', filename='js/run.js') }}"></script>
 {% endblock %}

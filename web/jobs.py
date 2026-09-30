@@ -18,6 +18,13 @@ PHASES = [
     ("done", "Report"),
 ]
 
+IMAGE_PHASES = [
+    ("prep", "Preparing images"),
+    ("kfold", "K-fold training"),
+    ("test", "External test"),
+    ("done", "Report"),
+]
+
 _STARTING = re.compile(r"^(.+?) is starting$")
 _COMPLETED = re.compile(r"^(.+?) is completed successfully$")
 _SKIPPED = re.compile(r"^(.+?) failed and was skipped: (.*)$")
@@ -47,7 +54,8 @@ class _Tee:
 
 
 class PipelineJob:
-    """A single pipeline run at a time (the pipeline keeps module-level state)."""
+    """A single pipeline run at a time, whatever the automator (the tabular pipeline keeps
+    module-level state, and both write their outputs to the Materials folder)."""
 
     LOG_LINES = 400
 
@@ -56,12 +64,14 @@ class PipelineJob:
         self._reset(models=[])
         self.state = "idle"
 
-    def _reset(self, models):
+    def _reset(self, models, automator="tabular", phases=PHASES, initial_phase="data"):
+        self.automator = automator
+        self.phases = list(phases)
         self.state = "running"
         self.message = ""
         self.started_at = time.time()
         self.finished_at = None
-        self.phase = "data"
+        self.phase = initial_phase
         self.models = {name: {"kfold": "pending", "test": "pending", "note": ""} for name in models}
         self.log = deque(maxlen=self.LOG_LINES)
 
@@ -69,12 +79,12 @@ class PipelineJob:
     def running(self):
         return self.state == "running"
 
-    def start(self, target, models):
+    def start(self, target, models, automator="tabular", phases=PHASES, initial_phase="data"):
         """Run ``target()`` in a background thread. Returns False if a job is already running."""
         with self._lock:
             if self.running:
                 return False
-            self._reset(models)
+            self._reset(models, automator, phases, initial_phase)
         threading.Thread(target=self._run, args=(target,), daemon=True).start()
         return True
 
@@ -107,9 +117,11 @@ class PipelineJob:
             self.phase = "bias"
         elif text.startswith("Loading Data"):
             self.phase = "data"
+        elif text.startswith("Preparing images"):
+            self.phase = "prep"
         elif text.startswith("Training on K-Fold cross validation") and "completed" not in text:
             self.phase = "kfold"
-        elif text.startswith("Evaluating algorithms on Test.csv"):
+        elif text.startswith("Evaluating algorithms on"):
             self.phase = "test"
         elif self.phase in ("kfold", "test"):
             for pattern, status in ((_STARTING, "running"), (_COMPLETED, "done")):
@@ -132,6 +144,8 @@ class PipelineJob:
             end = self.finished_at or time.time()
             return {
                 "state": self.state,
+                "automator": self.automator,
+                "phases": self.phases,
                 "message": self.message,
                 "phase": self.phase,
                 "progress": progress if self.state != "idle" else 0,

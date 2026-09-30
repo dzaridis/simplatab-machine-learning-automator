@@ -40,7 +40,7 @@
                            {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Home</a>
                     </li>
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {% if request.endpoint in ('automator', 'tabular', 'parameters') %}active{% endif %}"
+                        <a class="nav-link dropdown-toggle {% if request.endpoint in ('automator', 'tabular', 'parameters', 'image', 'image_parameters') %}active{% endif %}"
                            href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Automators</a>
                         <ul class="dropdown-menu dropdown-menu-end">
                             {% for item in automators %}

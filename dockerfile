@@ -1,3 +1,10 @@
+# Simplatab image. Two variants, built from this file:
+#   CPU (default):  docker build -t simplatab .
+#   GPU (NVIDIA):   docker build --build-arg DEVICE=gpu -t simplatab:gpu .
+#                   docker run --gpus all --shm-size=4g -p 7111:5000 simplatab:gpu
+# The GPU variant uses the CUDA 12.8 build of PyTorch (bundled in its wheels: the host only needs
+# the NVIDIA driver and the NVIDIA Container Toolkit) and is built for linux/amd64.
+
 # Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
@@ -13,15 +20,17 @@ RUN apt-get update && apt-get install -y libgomp1 && rm -rf /var/lib/apt/lists/*
 # (e.g. Jinja2) and then fails building them from source: use a recent pip
 RUN pip install --no-cache-dir --upgrade pip
 
-# Install the CPU build of PyTorch (same version as requirements.txt), avoiding the CUDA libraries.
-# linux/amd64 (Linux, Windows, Intel Macs): the PyPI wheel bundles CUDA, use the CPU index.
-# linux/arm64 (Apple Silicon Macs, ARM Linux): the PyPI wheel is already CPU-only.
+# Install PyTorch and torchvision (same versions as requirements.txt).
+# DEVICE=gpu: the PyPI wheels, which bundle CUDA 12.8 (linux/amd64).
+# DEVICE=cpu on linux/amd64 (Linux, Windows, Intel Macs): the CPU index, avoiding the CUDA libraries.
+# DEVICE=cpu on linux/arm64 (Apple Silicon Macs, ARM Linux): the PyPI wheels are already CPU-only.
 # TARGETARCH is set by BuildKit for the platform being built.
+ARG DEVICE=cpu
 ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        pip install --no-cache-dir torch==2.8.0; \
+RUN if [ "$DEVICE" = "gpu" ] || [ "$TARGETARCH" = "arm64" ]; then \
+        pip install --no-cache-dir torch==2.8.0 torchvision==0.23.0; \
     else \
-        pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu; \
+        pip install --no-cache-dir torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu; \
     fi
 
 # Install Flask and other necessary packages
@@ -31,6 +40,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Download the pretrained TabPFNv2 and TabICL weights into the image (otherwise fetched on first use)
 COPY Helpers/dl_classifiers.py Helpers/dl_classifiers.py
 RUN python Helpers/dl_classifiers.py || echo "WARNING: pretrained weights not downloaded, they will be downloaded on first use"
+
+# Download the pretrained weights of the 10 networks of the image automator
+COPY Helpers/image/models.py Helpers/image/models.py
+RUN python Helpers/image/models.py || echo "WARNING: pretrained weights not downloaded, they will be downloaded on first use"
 
 # Copy the current directory contents into the container
 COPY . .

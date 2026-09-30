@@ -4,7 +4,6 @@
 
     var root = document.getElementById('run-root');
     var url = root.getAttribute('data-status-url');
-    var PHASE_ORDER = ['bias', 'data', 'kfold', 'test', 'done'];
     var STATUS = {
         pending: ['bi-circle', 'Waiting'],
         running: ['bi-arrow-repeat spin', 'In progress'],
@@ -41,9 +40,10 @@
         pill.className = 'status-pill ' + labels[0];
         pill.innerHTML = '<i class="bi ' + labels[1] + '" aria-hidden="true"></i><span>' + labels[2] + '</span>';
 
-        var current = PHASE_ORDER.indexOf(s.phase);
+        var order = s.phases.map(function (p) { return p[0]; });
+        var current = order.indexOf(s.phase);
         document.querySelectorAll('#phases li').forEach(function (li) {
-            var index = PHASE_ORDER.indexOf(li.getAttribute('data-phase'));
+            var index = order.indexOf(li.getAttribute('data-phase'));
             var done = s.state === 'done' || index < current;
             li.className = done ? 'done' : (index === current && s.state === 'running' ? 'active' : '');
             li.setAttribute('aria-current', li.className === 'active' ? 'step' : 'false');

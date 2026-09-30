@@ -1,5 +1,5 @@
 
-# SIMPLATAB: **SI**mplified **M**achine **P**ipe**L**ine **A**utomator for **TAB**ular data
+# SIMPLATAB: **SI**mplified **M**achine **P**ipe**L**ine **A**utomator for **TAB**ular data (and medical images)
 ![ML Pipeline](static/images_materials/MLPipeline.png)
 ## Overview
 
@@ -24,6 +24,8 @@ Please navigate to the [Examples Folder](Example) where examplars Train.csv and 
 - **Bias Detection**: Identify and assess potential biases in your datasets
 - **Model Export**: Save trained models for deployment in other applications
 - **Guided Web Interface**: Upload with instant checks, explained settings, live progress and a results dashboard
+- **Medical Image Classification**: 10 pretrained CNNs and vision transformers on DICOM, NIfTI, PNG and JPEG images, with Grad-CAM explanations (see [Image Classification Automator](#image-classification-automator))
+- **GPU Support**: a GPU Docker image for fast training on NVIDIA GPUs
 
 
 ## Getting Started
@@ -54,6 +56,17 @@ docker run -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:latest
 ```
 To run a specific version, replace `latest` with a version from the
 [Releases](https://github.com/dzaridis/simplatab-machine-learning-automator/releases) page (e.g. `1.1.1`).
+
+**With an NVIDIA GPU** (recommended to fine-tune the image networks): use the GPU image, tagged `latest-gpu`
+(or `<version>-gpu`). It needs the NVIDIA driver and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+on a Linux host (or Windows with WSL 2), and is built for `linux/amd64`:
+```bash
+docker pull dimzaridis/simplatab-machine-learning-automator:latest-gpu
+docker run --gpus all --shm-size=4g -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:latest-gpu
+```
+`--shm-size` gives the image loaders the shared memory they need to keep the GPU busy. The configuration page
+of the image automator shows whether the GPU was detected.
 ---
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
 
@@ -82,6 +95,12 @@ docker build -t simplatab .
 3. Run the Docker Image
 ```bash
 docker run -p 7111:5000 simplatab
+```
+
+For the GPU image, build with `--build-arg DEVICE=gpu` (same Dockerfile) and run with `--gpus all`:
+```bash
+docker build --build-arg DEVICE=gpu -t simplatab:gpu .
+docker run --gpus all --shm-size=4g -p 7111:5000 simplatab:gpu
 ```
 
 4. Open browser (Chrome, Mozilla) and Access the web interface at ```http://localhost:7111/automl/```
@@ -129,7 +148,8 @@ Every push to `main` whose tests pass is released automatically by the CI (`.git
 1. The version is the latest release version plus `0.0.1` (e.g. `1.1.1` → `1.1.2`), computed by
    [`ci/next_version.sh`](ci/next_version.sh).
 2. The Docker image is built for `linux/amd64` and `linux/arm64` and published as
-   `dimzaridis/simplatab-machine-learning-automator:<version>` and `:latest`.
+   `dimzaridis/simplatab-machine-learning-automator:<version>` and `:latest`; the GPU image (`linux/amd64`) as
+   `:<version>-gpu` and `:latest-gpu`.
 3. A Git tag and a GitHub release with the same `<version>` are created, with notes listing the merged changes.
 
 The version is shown at the bottom of the web interface (`dev` when running from source). To move to a new
@@ -155,10 +175,11 @@ Target Column: A column named **Target** containing:
 
 ### Step-by-Step Usage
 ---
-The web interface opens on a landing page listing the **automators**. **Tabular Classification** is available
-today. **Image Classification**, **Image Segmentation** and **Longitudinal Forecasting** are shown as
-*Coming soon*, with pages describing the data they will take and what they will produce. The tabular automator
-guides you through four steps, shown at the top of every page:
+The web interface opens on a landing page listing the **automators**. **Tabular Classification** and
+**Image Classification** (see [below](#image-classification-automator)) are available. **Image Segmentation** and
+**Longitudinal Forecasting** are shown as *Coming soon*, with pages describing the data they will take and what
+they will produce. Both available automators guide you through four steps, shown at the top of every page
+(described here for tabular data):
 
 1. **Upload.** Drag and drop (or browse for) `Train.csv` and `Test.csv`. The files are checked in the browser
    before anything is sent: the `Target` column, the class labels, missing values, the columns shared by the two
@@ -193,6 +214,83 @@ The interface has light and dark themes (following the system setting by default
 All its assets are served locally, so it works without internet access.
 
 
+
+## Image Classification Automator
+
+Classifies medical images with pretrained deep learning networks, following the same workflow as the tabular
+automator: stratified K-fold cross-validation with decision threshold optimisation, then an external evaluation on
+a test set that you provide and that is never used for training.
+
+### Data
+Two zip files, **Train.zip** and **Test.zip** (up to **5 GB each**), with **one folder per class**; the folder
+names are the class names. A single wrapping folder (e.g. `Train/`) is fine, and class folders may contain
+sub-folders (e.g. one per patient): every image file is one sample.
+```
+Train.zip
+├── benign/
+│   ├── case_001.dcm
+│   └── patient_07/slice_12.dcm
+└── malignant/
+    ├── case_104.nii.gz
+    └── case_105.png
+```
+Keep all the images of a patient in the same zip file, otherwise the test metrics are optimistic (the upload
+warns about identical files in both zips).
+
+### Medical image support
+| Format | Details |
+|---|---|
+| DICOM (`.dcm`, or no extension) | Uncompressed and compressed (JPEG, JPEG Lossless, JPEG-LS, JPEG 2000); modality LUT (e.g. Hounsfield units); MONOCHROME1 inverted; colour (RGB/YBR) images; multi-frame |
+| NIfTI (`.nii`, `.nii.gz`) | 2D and 3D (4D: first volume), reoriented to RAS |
+| PNG, TIFF | 8 and 16-bit, grayscale or colour |
+| JPEG, BMP | 8-bit, grayscale or colour |
+
+- **Intensity window**: CT presets (lung, soft tissue, bone, brain) for CT DICOM and NIfTI files; by default the
+  window stored in the DICOM header, else the 0.5–99.5 percentiles of each image.
+- **3D volumes** (NIfTI, multi-frame DICOM): reduced to the middle axial slice or to the maximum intensity projection.
+- Every image is converted to 8 bits, padded to a square (no distortion) and resized to 224 × 224 pixels.
+
+### Networks
+| Network | Type | Pretraining |
+|---|---|---|
+| ResNet-50 | CNN | ImageNet-1k (2021 training recipe) |
+| EfficientNet-B0 | CNN | ImageNet-1k |
+| EfficientNetV2-S | CNN | ImageNet-21k |
+| ConvNeXt-Tiny | CNN | ImageNet-22k |
+| ConvNeXt V2-Tiny | CNN | Self-supervised (FCMAE) + ImageNet-22k |
+| ViT-Small | Transformer | ImageNet-21k |
+| DeiT III-Small | Transformer | ImageNet-22k |
+| Swin-Tiny | Transformer | ImageNet-22k |
+| MaxViT-Tiny | Hybrid CNN / transformer | ImageNet-1k |
+| DINOv2-Small | Transformer | Self-supervised (LVD-142M) |
+
+The weights come from [timm](https://github.com/huggingface/pytorch-image-models) and are included in the Docker
+images.
+
+### Training modes
+- **Feature extraction** (default without GPU): the pretrained network is frozen and turns each image into a
+  feature vector; a standardised, class-weighted logistic regression (regularisation chosen by an internal 3-fold
+  cross-validation) learns the classes. Minutes on a CPU.
+- **Fine-tuning** (default with a GPU): the whole network is trained (AdamW, cosine schedule, class-weighted loss,
+  mixed precision on GPU) with data augmentation (random crops, small rotations, brightness/contrast; flips are
+  optional, since left and right matter in many medical images). In each fold, 10% of the training images are held
+  out for early stopping; the final network is trained on all of Train.zip for the median best number of epochs.
+
+For binary problems, choose the **positive class** (the class to detect): it is class 1 in the metrics and the
+decision threshold applies to its probability.
+
+### Outputs
+In the `Materials` folder, shown on the results page:
+- `test_results.xlsx`, `<K>_fold_results.xlsx`, ROC and precision-recall curves, confusion matrices (as for tabular data);
+- `classes.csv`: the number of each class in the confusion matrices and curves;
+- `GradCAM/<network>/`: Grad-CAM heatmaps of test images for each class (the most confident errors first);
+- `Predictions/<network>_test_predictions.csv`: each test image with its true class, predicted class and probabilities;
+- `Models/<network>.pt`: the trained network with its classes, threshold and preprocessing. To predict on new images:
+```python
+from Helpers.image.inference import load_model, predict
+model, info = load_model("Materials/Models/DINOv2-Small.pt")
+predict(model, info, ["scan_001.dcm", "scan_002.png"])
+```
 
 ## Example Datasets
 
