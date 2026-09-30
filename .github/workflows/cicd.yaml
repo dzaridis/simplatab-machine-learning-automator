@@ -54,4 +54,4 @@ jobs:
         with:
           context: .
           push: ${{ github.event_name == 'push' }}
-          tags: ${{ secrets.DOCKER_USERNAME || 'local' }}/simplatab-machine-learning-automator:1.0.0
+          tags: ${{ secrets.DOCKER_USERNAME || 'local' }}/simplatab-machine-learning-automator:1.1.0
