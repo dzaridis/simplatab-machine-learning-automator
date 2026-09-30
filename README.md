@@ -37,6 +37,9 @@ You can run the Machine Learning Automator using either Docker or as a standalon
 
 - [Docker](https://www.docker.com/products/docker-desktop) installed on your system
 
+The image is published for `linux/amd64` (Linux, Windows, Intel Macs) and `linux/arm64` (Apple Silicon Macs,
+ARM Linux): Docker pulls the one matching your machine.
+
 #### Steps
 
 1. Pull the Image
