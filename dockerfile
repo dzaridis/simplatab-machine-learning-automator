@@ -45,6 +45,10 @@ RUN python Helpers/dl_classifiers.py || echo "WARNING: pretrained weights not do
 COPY Helpers/image/models.py Helpers/image/models.py
 RUN python Helpers/image/models.py || echo "WARNING: pretrained weights not downloaded, they will be downloaded on first use"
 
+# Download the COCO-pretrained weights of the 10 detectors of the object detection automator
+COPY Helpers/detection/models.py Helpers/detection/models.py
+RUN python Helpers/detection/models.py || echo "WARNING: pretrained weights not downloaded, they will be downloaded on first use"
+
 # Copy the current directory contents into the container
 COPY . .
 

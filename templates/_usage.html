@@ -217,3 +217,128 @@ print(forecast)  # unique_id, ds and the {{ model }} forecast of the next {{ inf
     </div>
 </div>
 {% endmacro %}
+
+{# ---- Object detection ---- #}
+
+{% macro detection_code(model, info) -%}{% autoescape false -%}
+{%- set tv = model.library == 'torchvision' -%}
+{%- set is3d = info.dim == 3 -%}
+{%- set dicom = 'dicom' in (info.kinds or []) or 'dicom series' in (info.kinds or []) -%}
+{%- set stem = model.file[:-3] if tv else model.file[:-4] -%}
+import json
+{% if not tv %}import shutil
+{% endif %}
+import numpy as np
+import torch
+{% if tv %}import torchvision  # registers the detection operators of the network
+{% endif %}from PIL import Image
+{% if is3d %}import nibabel as nib
+{% endif %}{% if dicom %}import pydicom
+from pydicom.pixel_data_handlers.util import apply_modality_lut
+{% endif %}{% if not tv %}from transformers import AutoModelForObjectDetection
+{% endif %}
+{% if tv %}meta = {"simplatab.json": ""}
+model = torch.jit.load("Materials/Models/{{ model.file }}", _extra_files=meta).eval()
+info = json.loads(meta["simplatab.json"])  # classes, image size, score threshold
+{% else %}shutil.unpack_archive("Materials/Models/{{ model.file }}", "models")
+model = AutoModelForObjectDetection.from_pretrained("models/{{ stem }}").eval()
+info = json.load(open("models/{{ stem }}/simplatab.json"))  # classes, image size, score threshold
+{% endif %}size = info["image_size"]
+
+
+def to_8bit(values, window=None):  # window (center, width), otherwise the 0.5-99.5 percentiles
+    low, high = np.percentile(values, [0.5, 99.5]) if window is None else (window[0] - window[1] / 2, window[0] + window[1] / 2)
+    return (np.clip((values - low) / max(high - low, 1e-6), 0, 1) * 255 + 0.5).astype(np.uint8)
+
+{% if dicom and not is3d %}
+def load(path):  # 8-bit RGB image, as in training
+    if path.lower().endswith((".dcm", ".dicom")):
+        ds = pydicom.dcmread(path)
+        values = apply_modality_lut(ds.pixel_array, ds).astype(np.float32)
+        window = (float(np.ravel(ds.WindowCenter)[0]), float(np.ravel(ds.WindowWidth)[0])) if "WindowWidth" in ds else None
+        return np.stack([to_8bit(values, window)] * 3, axis=-1)
+    return np.array(Image.open(path).convert("RGB"))
+{% elif not is3d %}
+def load(path):  # 8-bit RGB image
+    return np.array(Image.open(path).convert("RGB"))
+{% else %}
+def load_volume(path):  # 8-bit (z, y, x) volume, as in training
+    values = np.asanyarray(nib.load(path).dataobj).astype(np.float32).transpose(2, 1, 0)
+    return to_8bit(values{% if info.window not in ('auto', None) %}, {{ {'lung': (-600, 1500), 'soft_tissue': (40, 400), 'bone': (400, 1800), 'brain': (40, 80)}[info.window] | list }}{% endif %})
+{% endif %}
+
+def detect(image):  # (H, W, 3) uint8 -> boxes (x1, y1, x2, y2 in pixels), scores, class indices
+    height, width = image.shape[:2]
+    x = torch.from_numpy(np.asarray(Image.fromarray(image).resize((size, size), Image.BILINEAR), dtype=np.float32) / 255).permute(2, 0, 1)
+{% if tv %}    with torch.no_grad():
+        _, (out,) = model([x])
+    keep = out["labels"] > 0  # 0 is the background
+    boxes, scores, labels = out["boxes"][keep], out["scores"][keep], out["labels"][keep] - 1
+{% else %}    if info["normalize"]:  # ImageNet normalisation
+        x = (x - torch.tensor([0.485, 0.456, 0.406]).view(3, 1, 1)) / torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
+    with torch.no_grad():
+        out = model(pixel_values=x[None])
+    probabilities = out.logits.sigmoid()[0]  # (queries, classes)
+    scores, index = probabilities.flatten().topk(min(100, probabilities.numel()))
+    labels = index % probabilities.shape[1]
+    cx, cy, w, h = out.pred_boxes[0][index // probabilities.shape[1]].unbind(-1)
+    boxes = torch.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], dim=1).clamp(0, 1) * size
+{% endif %}    boxes = boxes * torch.tensor([width / size, height / size] * 2)
+    return boxes.numpy(), scores.numpy(), labels.numpy()
+
+{% if not is3d %}
+boxes, scores, labels = detect(load("new_image.png"))
+for box, score, label in zip(boxes, scores, labels):
+    if score >= info["threshold"]:
+        print(info["classes"][label], round(float(score), 3), box.round(1).tolist())
+{% else %}
+def iou(a, b):
+    w = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    h = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    return w * h / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - w * h)
+
+
+volume = load_volume("new_volume.nii.gz")
+objects = []  # boxes of the same class on consecutive slices (IoU >= 0.5) form one 3D object
+for z in range(len(volume)):
+    image = np.stack([volume[max(z - 1, 0)], volume[z], volume[min(z + 1, len(volume) - 1)]], axis=-1)
+    boxes, scores, labels = detect(image)
+    used = set()
+    for i in np.argsort(-scores):
+        if scores[i] < 0.05:
+            continue
+        candidates = [o for o in objects if o["last"] == z - 1 and o["label"] == labels[i] and id(o) not in used]
+        match = max(candidates, key=lambda o: iou(o["boxes"][-1], boxes[i]), default=None)
+        if match is None or iou(match["boxes"][-1], boxes[i]) < 0.5:
+            match = {"label": labels[i], "boxes": [], "score": 0.0, "first": z}
+            objects.append(match)
+        match["boxes"].append(boxes[i])
+        match["score"], match["last"] = max(match["score"], float(scores[i])), z
+        used.add(id(match))
+for o in sorted(objects, key=lambda o: -o["score"]):
+    if o["score"] >= info["threshold"]:
+        b = np.array(o["boxes"])
+        print(info["classes"][o["label"]], round(o["score"], 3), "x", b[:, [0, 2]].min(0).round(1).tolist(),
+              "y", [round(b[:, 1].min(), 1), round(b[:, 3].max(), 1)], "slices", o["first"], "to", o["last"])
+{% endif %}
+{%- endautoescape %}{%- endmacro %}
+
+{% macro detection_usage_card(models, best, info) %}
+{% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
+<div class="card mb-4" id="use-models">
+    <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Use a trained network on new images</div>
+    <div class="p-3">
+        <p class="small-muted mt-0">
+            {% if chosen.library == 'torchvision' %}The <code>.pt</code> networks (torchvision) are TorchScript files{% else %}The <code>.zip</code> networks (detection transformers) hold a Hugging Face model folder{% endif %} with <code>simplatab.json</code> (classes, image size, score threshold).
+            They run without Simplatab. The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best network on the test set{% endif %}{% if models | map(attribute='library') | unique | list | length > 1 %}; the other kind of network is loaded differently: select it in the results to see its code{% endif %}.
+        </p>
+        <h3 class="h6 fw-bold">1. Install</h3>
+        {{ code_block("code-install", "Shell", install_code(['"torch>=2.8" torchvision --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build for a GPU',
+                                                             'numpy pillow' ~ (' transformers==4.57.6 timm' if chosen.library == 'transformers' else '') ~ (' nibabel' if info.dim == 3 else '') ~ (' pydicom' if 'dicom' in (info.kinds or []) and info.dim == 2 else '')])) }}
+        <h3 class="h6 fw-bold mt-3">2. Detect <span class="small-muted fw-normal">(save as <code>detect.py</code> and run <code>python detect.py</code>)</span></h3>
+        {{ code_block("code-predict", "Python", detection_code(chosen, info)) }}
+        <p class="small-muted mt-3 mb-0">{% if info.dim == 3 %}The volume is read as (slices, rows, columns) and each slice is given with its neighbours, as in training; the slice boxes are linked into 3D objects.{% else %}Images are resized to {{ info.image_size }} × {{ info.image_size }} as in training and the boxes scaled back to the original pixels.{% endif %}
+            Only the detections above the threshold chosen on the validation images are printed.</p>
+    </div>
+</div>
+{% endmacro %}

@@ -42,13 +42,14 @@
 
     <div class="card mb-4">
         <div class="card-header py-3 d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>{{ 'Networks' if automator.slug == 'image-classification' else 'Models' }}</span>
+            <span><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>{{ 'Networks' if automator.slug in ('image-classification', 'object-detection') else 'Models' }}</span>
             {% set forecasting = automator.slug == 'time-series-forecasting' %}
-            <span class="small-muted fw-normal">Each {{ 'network' if automator.slug == 'image-classification' else 'model' }} is {{ 'validated on rolling-origin windows' if forecasting else 'trained with K-fold cross-validation' }}, then evaluated on the test set</span>
+            {% set detecting = automator.slug == 'object-detection' %}
+            <span class="small-muted fw-normal">Each {{ 'network' if automator.slug in ('image-classification', 'object-detection') else 'model' }} is {{ 'validated on rolling-origin windows' if forecasting else ('validated (K-fold or hold-out)' if detecting else 'trained with K-fold cross-validation') }}, then evaluated on the test set</span>
         </div>
         <div class="table-responsive">
             <table class="table metric-table mb-0">
-                <thead><tr><th scope="col">Model</th><th scope="col">{{ 'Validation' if forecasting else 'K-fold training' }}</th><th scope="col">External test</th></tr></thead>
+                <thead><tr><th scope="col">Model</th><th scope="col">{{ 'Validation' if forecasting or detecting else 'K-fold training' }}</th><th scope="col">External test</th></tr></thead>
                 <tbody id="models-body"></tbody>
             </table>
         </div>
