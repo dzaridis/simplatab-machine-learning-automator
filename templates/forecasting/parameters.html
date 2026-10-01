@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Configure · Time Series Forecasting{% endblock %}
+
+{% macro covariate_badges(model) %}
+{% set c = model.covariates %}
+<span class="d-flex flex-wrap gap-1 mt-2">
+    {% for key, label in [("future", "Future"), ("past", "Past"), ("static", "Static")] %}
+    <span class="badge rounded-pill fw-medium {{ 'text-bg-light border' if c[key] else 'border text-body-tertiary' }}"
+          title="{{ label }} covariates {{ 'used' if c[key] else 'not used' }}">
+        <i class="bi {{ 'bi-check-lg' if c[key] else 'bi-dash' }}" aria-hidden="true"></i> {{ label }}<span class="visually-hidden"> covariates {{ 'used' if c[key] else 'not used' }}</span>
+    </span>
+    {% endfor %}
+    {% if model.slow %}<span class="badge rounded-pill text-bg-warning fw-medium"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Slow on CPU</span>{% endif %}
+</span>
+{% endmacro %}
+
+{% block content %}
+{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2, automator) }}
+{% set unit = 'time steps' if summary.kind == 'integer' else 'time points' %}
+
+<div class="container pb-4">
+    <form id="params-form" action="{{ url_for('forecasting_parameters') }}" method="post" novalidate
+          data-length-min="{{ summary.length_min }}" data-max-horizon="{{ summary.max_horizon }}">
+        <div class="row g-4">
+            <div class="col-lg-8 order-2 order-lg-1">
+                {% if previous_results %}
+                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
+                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+                        <div><div class="fw-semibold">Starting this run replaces the previous results</div>
+                            <div class="small-muted">Download them first if you want to keep them.</div></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_all') }}">
+                        <i class="bi bi-file-earmark-zip me-1" aria-hidden="true"></i>Download previous results</a>
+                </div>
+                {% endif %}
+
+                {% if summary.warnings %}
+                <div class="alert alert-warning d-flex gap-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
+                    <div><div class="fw-semibold">Check your data</div>
+                        <ul class="mb-0 ps-3">{% for warning in summary.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-bullseye me-2 text-primary" aria-hidden="true"></i>Forecast</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="horizon">Horizon</label></h2>
+                                <p class="help">How many {{ unit }} ahead to forecast. The last <em>horizon</em> points of every Test.csv series are forecast from the points before them.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="horizon" name="horizon" value="{{ summary.suggested_horizon }}" min="1" max="{{ summary.max_horizon }}" required aria-describedby="horizon-feedback">
+                                <div class="form-text" id="horizon-feedback">At most {{ summary.max_horizon }}: the number of points Test.csv gives for its shortest series.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2>Lookback</h2>
+                                <p class="help">How many past points each forecast uses. Automatic starts from twice the horizon and, with tuning, compares 1, 2, 3 and 5 times the horizon.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="d-flex gap-3 mb-2">
+                                    <div class="form-check"><input class="form-check-input" type="radio" name="lookback_mode" id="lookback-auto" value="auto" checked><label class="form-check-label" for="lookback-auto">Automatic</label></div>
+                                    <div class="form-check"><input class="form-check-input" type="radio" name="lookback_mode" id="lookback-fixed" value="fixed"><label class="form-check-label" for="lookback-fixed">Fixed</label></div>
+                                </div>
+                                <input type="number" class="form-control" id="lookback" name="lookback" value="{{ 2 * summary.suggested_horizon }}" min="1" aria-label="Lookback ({{ unit }})" disabled>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="season">Seasonal period</label></h2>
+                                <p class="help">The length of a cycle in {{ unit }} (7 for daily data with a weekly pattern, 12 for monthly data, 1 for none). Used by the seasonal naive baseline and MASE.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="season" name="season" value="{{ summary.season }}" min="1" max="1000">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {% if summary.dynamic or summary.static %}
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-diagram-3 me-2 text-primary" aria-hidden="true"></i>Covariates</div>
+                    {% if summary.dynamic %}
+                    <div class="settings-section">
+                        <h2 class="mb-1">Time-varying covariates</h2>
+                        <p class="help mb-3"><strong>Known in advance</strong>: values available for the forecast period too (a scheduled dose, the day of the week); the networks use them over the horizon, and Test.csv must contain them for the points to forecast. <strong>Observed up to now</strong>: only the past values are used (another measurement).</p>
+                        <div class="table-responsive">
+                            <table class="table align-middle mb-0">
+                                <tbody>
+                                    {% for column in summary.dynamic %}
+                                    <tr>
+                                        <th scope="row" class="fw-semibold">{{ column }}{% if column in summary.categorical %} <span class="badge rounded-pill text-bg-light border fw-medium">categorical</span>{% endif %}</th>
+                                        <td style="width: 60%">
+                                            <select class="form-select form-select-sm" name="role_{{ loop.index0 }}" aria-label="Role of {{ column }}">
+                                                <option value="past" selected>Observed up to now (past)</option>
+                                                <option value="future">Known in advance (future)</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if summary.static %}
+                    <div class="settings-section">
+                        <h2 class="mb-1">Static features</h2>
+                        <p class="help mb-2">Constant within every series, used by the networks that accept static features{% if summary.categorical %}; categorical ones are one-hot encoded{% endif %}.</p>
+                        <div class="d-flex flex-wrap gap-1">{% for column in summary.static %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ column }}</span>{% endfor %}</div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Models</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">Global networks: each learns from all the training series and can forecast new ones. The badges show which covariates each network uses; all use the Target history. A seasonal naive forecast (repeating the last cycle) is always added as a baseline.</p>
+                        {% for group, title, subtitle in [
+                            ("mlp", "MLP-based", "Fast and strong; a good first choice."),
+                            ("attention", "Attention (transformers)", "Relate distant time points; benefit from more data."),
+                            ("convolution", "Convolutional", "Learn local temporal patterns with convolutions."),
+                        ] %}
+                        <div class="{% if not loop.first %}mt-4{% endif %}">
+                            <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+                                <div><h2>{{ title }}</h2><p class="help">{{ subtitle }}</p></div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Select {{ title }}">
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="1">Select all</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="0">None</button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                {% for model in models if model.family == group %}
+                                <div class="col-md-6">
+                                    <label class="option-card">
+                                        <input type="checkbox" name="{{ model.key }}" value="true" data-group="{{ group }}" {% if model.default %}checked{% endif %}>
+                                        <span class="option-body">
+                                            <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                            <span>
+                                                <span class="title d-block">{{ model.name }}</span>
+                                                <span class="desc d-block">{{ model.description }}</span>
+                                                {{ covariate_badges(model) }}
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one model.</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header py-3"><i class="bi bi-sliders me-2 text-primary" aria-hidden="true"></i>Validation and training</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="k_folds">Rolling-origin windows</label></h2>
+                                <p class="help">Prequential validation on Train.csv: the last <em>K</em> horizons of every series are forecast one after the other, each by a network trained on the points before it. Errors are averaged over the windows.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="3" min="1" max="10" required aria-describedby="k-folds-feedback">
+                                <div class="form-text" id="k-folds-feedback"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="trials">Hyperparameter tuning</label></h2>
+                                <p class="help">Extra configurations tried per model (lookback, learning rate, size), each on all the windows; the one with the lowest mean validation MAE is kept. 0 uses the defaults. Each configuration costs one training per window.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="trials" name="trials" value="0" min="0" max="50">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="max_steps">Training steps</label></h2>
+                                <p class="help">
+                                    {% if gpu %}<i class="bi bi-gpu-card me-1 text-success" aria-hidden="true"></i>GPU detected: {{ gpu }}.
+                                    {% else %}<i class="bi bi-cpu me-1" aria-hidden="true"></i>No GPU detected ({{ cpu_count }} CPU cores).{% endif %}
+                                    Optimisation steps per training, each on a batch of windows sampled from the series. More steps fit the series more closely and take longer.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="max_steps" name="max_steps">
+                                    {% for value in [200, 500, 1000, 2000] %}<option value="{{ value }}" {% if value == 500 %}selected{% endif %}>{{ value }}{% if value == 500 %} (default){% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 order-1 order-lg-2">
+                <div class="card p-4" style="position: sticky; top: 5.5rem;">
+                    <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
+                    <div class="row g-2 mb-3 text-center">
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_series }}</div><div class="small-muted">train series</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.test_series }}</div><div class="small-muted">test series</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.freq if summary.kind == 'date' else 'steps' }}</div><div class="small-muted">frequency</div></div></div>
+                    </div>
+                    <dl class="row small mb-3">
+                        <dt class="col-6 fw-normal small-muted">Train series length</dt><dd class="col-6 tabular-nums mb-1">{{ summary.length_min }}–{{ summary.length_max }} (median {{ summary.length_median }})</dd>
+                        <dt class="col-6 fw-normal small-muted">Test series</dt><dd class="col-6 mb-1">{{ summary.continuing_series }} continued, {{ summary.new_series }} new</dd>
+                        <dt class="col-6 fw-normal small-muted">Time span</dt><dd class="col-6 mb-1">{{ summary.start[:10] }} → {{ summary.end[:10] }}</dd>
+                        <dt class="col-6 fw-normal small-muted">Covariates</dt><dd class="col-6 mb-1">{{ summary.dynamic | length }} time-varying, {{ summary.static | length }} static</dd>
+                    </dl>
+                    {% if summary.dropped %}<div class="small-muted mb-3">Ignored: {{ summary.dropped | join(', ') }}</div>{% endif %}
+                    <a class="small" href="{{ url_for('forecasting') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <div class="container px-0 d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between">
+                <div class="small-muted d-none d-sm-block" id="run-summary" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary btn-lg" id="run-btn">
+                    <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run pipeline
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/forecasting_parameters.js') }}"></script>
+{% endblock %}

@@ -185,3 +185,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 Example/DummyExamples/Test.csv
+
+# Example data of the time series forecasting automator
+!Examples/time-series-forecasting/Train.csv
+!Examples/time-series-forecasting/Test.csv

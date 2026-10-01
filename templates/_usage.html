@@ -156,3 +156,64 @@ for path in sorted(glob.glob("new_images/*")):
     </div>
 </div>
 {% endmacro %}
+
+{# ---- Time series forecasting ---- #}
+
+{% macro forecast_code(model, info) -%}{% autoescape false -%}
+{%- set dates = info.time == 'date' -%}
+{%- set future = info.future_covariates -%}
+{%- set static = info.static_features -%}
+import json
+import shutil
+
+import pandas as pd
+from neuralforecast import NeuralForecast
+
+shutil.unpack_archive("Materials/Models/{{ model }}.zip", "models")
+nf = NeuralForecast.load("models/{{ model }}")
+info = json.load(open("models/{{ model }}/simplatab.json"))  # horizon, covariates, preprocessing
+
+
+def prepare(frame):  # columns of Train.csv -> columns of the model
+    frame = frame.rename(columns={"ID": "unique_id", "Time": "ds", "Target": "y"})
+{% if info.categorical %}    for column, levels in info["categories"].items():  # one-hot encoding
+        if column in frame:
+            for level, name in levels:
+                frame[name] = (frame[column].astype(str) == level).astype(float)
+{% endif %}    return frame
+
+
+# The history of each series, in the long format of Train.csv (regular time steps, no gaps)
+history = prepare(pd.read_csv("history.csv"{% if dates %}, parse_dates=["Time"]{% endif %}))
+{% if static %}static = history.groupby("unique_id")[info["static_features"]].first()
+for column, (mean, std) in info["static_scaling"].items():  # standardised as in training
+    static[column] = (static[column] - mean) / std
+{% endif %}{% if future %}# Covariates known in advance for the next {{ info.horizon }} time points of each series: ID, Time, {{ (info.future_columns or future) | join(", ") }}
+future = prepare(pd.read_csv("future_covariates.csv"{% if dates %}, parse_dates=["Time"]{% endif %}))
+{% endif %}
+columns = ["unique_id", "ds", "y"] + info["future_covariates"] + info["past_covariates"]
+forecast = nf.predict(df=history[columns]{% if static %}, static_df=static.reset_index(){% endif %}{% if future %},
+                      futr_df=future[["unique_id", "ds"] + info["future_covariates"]]{% endif %})
+print(forecast)  # unique_id, ds and the {{ model }} forecast of the next {{ info.horizon }} time points
+{%- endautoescape %}{%- endmacro %}
+
+{% macro forecast_usage_card(models, best, info) %}
+{% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
+<div class="card mb-4" id="use-models">
+    <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Use a trained model on new data</div>
+    <div class="p-3">
+        <p class="small-muted mt-0">
+            Each <code>.zip</code> file holds a neuralforecast model trained on all of Train.csv, with <code>simplatab.json</code> (horizon, covariates, preprocessing).
+            It runs without Simplatab, with the <code>neuralforecast</code> package. The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best model on the test set{% endif %}; replace the file name for another model.
+        </p>
+        <h3 class="h6 fw-bold">1. Install</h3>
+        {{ code_block("code-install", "Shell", install_code(['"torch>=2.8" --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build for a GPU',
+                                                             'neuralforecast==3.1.2 pydantic pandas'])) }}
+        <h3 class="h6 fw-bold mt-3">2. Forecast <span class="small-muted fw-normal">(save as <code>forecast.py</code> and run <code>python forecast.py</code>)</span></h3>
+        {{ code_block("code-predict", "Python", forecast_code(chosen.name, info)) }}
+        <p class="small-muted mt-3 mb-0"><code>history.csv</code> holds the past points of the series to forecast, with the columns of Train.csv; the model forecasts the {{ info.horizon }} points after the last one of each series.
+            {% if info.future_covariates %}The covariates known in advance must be given for those points in <code>future_covariates.csv</code>.{% endif %}
+            The library versions above are the ones that trained the model.</p>
+    </div>
+</div>
+{% endmacro %}

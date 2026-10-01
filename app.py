@@ -25,8 +25,10 @@ from Helpers.standalone import requirements as model_requirements
 from Helpers.image import dataset as image_dataset
 from Helpers.image.io import CT_WINDOWS
 from Helpers.image.models import BACKBONES, BY_KEY as BACKBONES_BY_KEY
+from Helpers.forecasting import data as forecast_data
+from Helpers.forecasting.models import MODELS as FORECAST_MODELS
 from web.catalog import AUTOMATORS, MODELS, THRESHOLD_METRICS, get_automator
-from web.jobs import PipelineJob, PHASES, IMAGE_PHASES
+from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES
 
 # Set in the Docker image by the release CI (same as the image and release tags)
 APP_VERSION = os.environ.get("SIMPLATAB_VERSION", "dev")
@@ -53,6 +55,9 @@ os.makedirs(TEMP_OUTPUT_FOLDER, exist_ok=True)
 
 # Image automator: uploaded zips, extracted class folders and the preprocessed image cache
 IMAGE_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_images')
+# Forecasting automator: Train.csv, Test.csv, their summary and the run parameters
+FORECAST_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_forecasting')
+FORECAST_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "time-series-forecasting")
 
 # Configure upload settings
 ALLOWED_EXTENSIONS = {'csv'}
@@ -437,6 +442,121 @@ def image_parameters():
 
 
 # ---------------------------------------------------------------------------
+# Time series forecasting automator: upload -> parameters -> run -> results
+# ---------------------------------------------------------------------------
+
+def forecast_summary():
+    path = os.path.join(FORECAST_INPUT_FOLDER, "summary.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+@app.route('/forecasting')
+def forecasting():
+    return render_template('forecasting/upload.html', automator=get_automator("time-series-forecasting"))
+
+
+@app.route('/forecasting/example/<name>')
+def forecasting_example(name):
+    if name not in ("Train.csv", "Test.csv"):
+        abort(404)
+    return send_from_directory(FORECAST_EXAMPLE_FOLDER, name, as_attachment=True)
+
+
+@app.route('/forecasting/upload', methods=['POST'])
+def forecasting_upload():
+    if job.running:
+        flash('A pipeline is already running. Wait for it to finish before uploading new data.', 'warning')
+        return redirect(url_for('run'))
+    if (request.content_length or 0) > TABULAR_MAX_BYTES:
+        flash('The files are too large: at most 50 MB per upload.', 'danger')
+        return redirect(url_for('forecasting'))
+    files = {name: request.files.get(field) for name, field in (("Train.csv", "train_file"), ("Test.csv", "test_file"))}
+    if not all(f and f.filename for f in files.values()):
+        flash('Add both Train.csv and Test.csv.', 'danger')
+        return redirect(url_for('forecasting'))
+    if not all(allowed_file(f.filename) for f in files.values()):
+        flash('Invalid file type. Only CSV files are allowed.', 'danger')
+        return redirect(url_for('forecasting'))
+    shutil.rmtree(FORECAST_INPUT_FOLDER, ignore_errors=True)
+    os.makedirs(FORECAST_INPUT_FOLDER)
+    for name, upload in files.items():
+        upload.save(os.path.join(FORECAST_INPUT_FOLDER, name))
+    summary = forecast_data.summarize(os.path.join(FORECAST_INPUT_FOLDER, "Train.csv"),
+                                      os.path.join(FORECAST_INPUT_FOLDER, "Test.csv"))
+    if summary["errors"]:
+        shutil.rmtree(FORECAST_INPUT_FOLDER, ignore_errors=True)
+        flash(" ".join(summary["errors"]), 'danger')
+        return redirect(url_for('forecasting'))
+    with open(os.path.join(FORECAST_INPUT_FOLDER, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    return redirect(url_for('forecasting_parameters'))
+
+
+def forecast_params_from_form(form, summary):
+    selected = [m.key for m in FORECAST_MODELS if form.get(m.key) == 'true']
+    if not selected:
+        raise ValueError('Select at least one model.')
+    horizon = _bounded(form, 'horizon', int, 1, max(1, summary["max_horizon"]), summary["suggested_horizon"])
+    folds_limit = min(10, forecast_data.max_folds(summary["length_min"], horizon))
+    if folds_limit < 1:
+        raise ValueError(f"The shortest training series ({summary['length_min']} points) is too short for a horizon of "
+                         f"{horizon}: it needs at least two horizons of points. Choose a shorter horizon.")
+    lookback = 0
+    if form.get('lookback_mode') == 'fixed':
+        lookback = _bounded(form, 'lookback', int, 1, 10 * summary["length_max"], 2 * horizon)
+    return {
+        "models": selected,
+        "horizon": horizon,
+        "k_folds": _bounded(form, 'k_folds', int, 1, folds_limit, min(3, folds_limit)),
+        "lookback": lookback,
+        "trials": _bounded(form, 'trials', int, 0, 50, 0),
+        "max_steps": _bounded(form, 'max_steps', int, 50, 10000, 500),
+        "season": _bounded(form, 'season', int, 1, 1000, summary["season"]),
+        "future_columns": [c for i, c in enumerate(summary["dynamic"]) if form.get(f'role_{i}') == 'future'],
+    }
+
+
+@app.route('/forecasting/parameters', methods=['GET', 'POST'])
+def forecasting_parameters():
+    if job.running:
+        return redirect(url_for('run'))
+    summary = forecast_summary()
+    if summary is None:
+        flash('Upload Train.csv and Test.csv first.', 'warning')
+        return redirect(url_for('forecasting'))
+
+    if request.method == 'POST':
+        try:
+            params = forecast_params_from_form(request.form, summary)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(url_for('forecasting_parameters'))
+        with open(os.path.join(FORECAST_INPUT_FOLDER, "params.json"), "w") as f:
+            json.dump(params, f, indent=2)
+        # The results of the previous run are replaced (the parameters page says so)
+        clear_materials()
+        from Helpers.forecasting.pipeline import run_forecasting_pipeline
+        if not job.start(lambda: run_forecasting_pipeline(FORECAST_INPUT_FOLDER, params), params["models"],
+                         automator="time-series-forecasting", phases=FORECAST_PHASES, initial_phase="data"):
+            flash('A pipeline is already running.', 'warning')
+        return redirect(url_for('run'))
+
+    import torch
+    return render_template(
+        'forecasting/parameters.html',
+        automator=get_automator("time-series-forecasting"),
+        summary=summary,
+        previous_results=has_results(),
+        models=FORECAST_MODELS,
+        gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        cpu_count=os.cpu_count(),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 
@@ -556,9 +676,92 @@ def collect_results(root):
     return results
 
 
+FORECAST_METRICS = ["MAE", "RMSE", "sMAPE", "MASE"]
+
+
+def _figure(path, root, title):
+    return {"path": _relative(path, root), "title": title} if os.path.exists(path) else None
+
+
+def collect_forecast_results(root):
+    """What the results page of the forecasting automator shows, read from the Materials folder."""
+    with open(os.path.join(root, "run_info.json")) as f:
+        info = json.load(f)
+    results = {"info": info, "automator": get_automator("time-series-forecasting"), "test": None, "kfold": None,
+               "best": None, "forecasts": {}, "explain": {}, "metric_plots": [], "models": [], "tables": [], "files": []}
+    for dirpath, _, filenames in os.walk(root):
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            results["files"].append({"path": _relative(path, root), "size": os.path.getsize(path)})
+    results["files"].sort(key=lambda f: f["path"])
+
+    test_path = os.path.join(root, "test_results.xlsx")
+    if os.path.exists(test_path):
+        test = pd.read_excel(test_path, index_col=0)
+        best = {m: test[m].min() for m in FORECAST_METRICS}
+        results["test"] = [{"model": model, "values": {m: float(row[m]) for m in FORECAST_METRICS},
+                            "best": {m: bool(row[m] == best[m]) for m in FORECAST_METRICS}}
+                           for model, row in test.iterrows()]
+        top = info.get("best_model")
+        if top in test.index:
+            results["best"] = {"model": top, "values": {m: float(test.loc[top, m]) for m in FORECAST_METRICS}}
+            baseline = "Seasonal naive"
+            if baseline in test.index and test.loc[baseline, "MAE"] > 0:
+                results["best"]["gain"] = 100 * (1 - test.loc[top, "MAE"] / test.loc[baseline, "MAE"])
+    kfold_path = os.path.join(root, f"{info.get('k_folds')}_fold_results.xlsx")
+    if os.path.exists(kfold_path):
+        kfold = pd.read_excel(kfold_path, index_col=0)
+        results["kfold"] = [{"model": model, "values": {m: str(row[m]) for m in FORECAST_METRICS}}
+                            for model, row in kfold.iterrows()]
+
+    for name, title in (("test_metrics.png", "Test errors by model"), ("error_by_horizon.png", "Test MAE at each horizon step")):
+        item = _figure(os.path.join(root, "Metrics_Plots", name), root, title)
+        if item:
+            results["metric_plots"].append(item)
+    order = [row["model"] for row in results["test"] or []]
+    for model in order:
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in model)
+        figures = [_figure(os.path.join(root, "Forecast_Plots", f"{safe}_test_forecasts.png"), root,
+                           f"{model}: test forecasts vs. observed values"),
+                   _figure(os.path.join(root, "Forecast_Plots", f"{safe}_future_forecasts.png"), root,
+                           f"{model}: forecasts beyond the last observed point")]
+        if any(figures):
+            results["forecasts"][model] = [f for f in figures if f]
+        item = _figure(os.path.join(root, "Explainability", f"{safe}_integrated_gradients.png"), root,
+                       f"{model}: integrated gradients")
+        if item:
+            importance = os.path.join(root, "Explainability", f"{safe}_feature_importance.csv")
+            item["importance"] = pd.read_csv(importance).head(8).to_dict("records") if os.path.exists(importance) else []
+            results["explain"][model] = item
+        path = os.path.join(root, "Models", f"{safe}.zip")
+        if os.path.exists(path):
+            results["models"].append({"path": _relative(path, root), "name": model, "size": os.path.getsize(path)})
+    for name, title, description in (
+            ("test_forecasts.csv", "Test forecasts", "Every test point: observed Target and the forecast of each model."),
+            ("future_forecasts.csv", "Forecasts beyond the data", "The next horizon after the last point of every test series."),
+            ("validation_windows.csv", "Validation windows", "The errors of every model on each rolling-origin window.")):
+        path = os.path.join(root, "Forecasts", name)
+        if os.path.exists(path):
+            results["tables"].append({"path": _relative(path, root), "name": title, "description": description,
+                                      "size": os.path.getsize(path)})
+    return results
+
+
+def _run_automator(root):
+    path = os.path.join(root, "run_info.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f).get("automator", "tabular")
+    return "tabular"
+
+
 @app.route('/results')
 def results():
-    return render_template('results.html', results=collect_results(materials_dir()),
+    root = materials_dir()
+    if _run_automator(root) == "time-series-forecasting":
+        return render_template('forecasting/results.html', results=collect_forecast_results(root),
+                               metrics=FORECAST_METRICS)
+    return render_template('results.html', results=collect_results(root),
                            metrics_order=METRICS)
 
 
@@ -583,7 +786,7 @@ def download_all():
             for file in files:
                 file_path = os.path.join(dirpath, file)
                 # Paths relative to the Materials directory; trained networks are already compressed
-                compression = zipfile.ZIP_STORED if file.endswith(('.pt', '.png')) else zipfile.ZIP_DEFLATED
+                compression = zipfile.ZIP_STORED if file.endswith(('.pt', '.png', '.zip')) else zipfile.ZIP_DEFLATED
                 zipf.write(file_path, os.path.relpath(file_path, root), compress_type=compression)
     archive.seek(0)
     return send_file(archive, mimetype='application/zip', as_attachment=True,

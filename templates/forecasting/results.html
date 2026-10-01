@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header, filesize %}
+{% from "_usage.html" import forecast_usage_card %}
+{% block title %}Results · Time Series Forecasting{% endblock %}
+
+{% macro figure(item) %}
+<div class="card figure-card wide h-100">
+    <button type="button" class="thumb" data-bs-toggle="modal" data-bs-target="#lightbox"
+            data-src="{{ url_for('material', filepath=item.path) }}" data-title="{{ item.title }}"
+            aria-label="Enlarge: {{ item.title }}">
+        <img src="{{ url_for('material', filepath=item.path) }}" alt="{{ item.title }}" loading="lazy">
+    </button>
+    <div class="caption">
+        <span>{{ item.title }}</span>
+        <a href="{{ url_for('download_file', filepath=item.path) }}" class="text-body-secondary" aria-label="Download {{ item.title }}"
+           data-bs-toggle="tooltip" data-bs-title="Download"><i class="bi bi-download" aria-hidden="true"></i></a>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro file_list(items, icon) %}
+<ul class="list-group list-group-flush">
+    {% for item in items %}
+    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+        <span><i class="bi bi-{{ icon }} me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ filesize(item.size) }}</span>
+            {% if item.description %}<span class="d-block small-muted">{{ item.description }}</span>{% endif %}</span>
+        <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download</a>
+    </li>
+    {% endfor %}
+</ul>
+{% endmacro %}
+
+{% block content %}
+{% set info = results.info %}
+{{ page_header("Results", "Errors on the rolling-origin validation and on the test series, forecasts and explanations.", 4, results.automator) }}
+
+<div class="container pb-5">
+    <div class="d-flex flex-wrap gap-2 justify-content-md-end mb-4">
+        <a class="btn btn-primary" href="{{ url_for('download_all') }}"><i class="bi bi-file-earmark-zip me-2" aria-hidden="true"></i>Download all (.zip)</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('forecasting') }}"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>New run</a>
+        <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#confirm-delete"
+                {% if job_running %}disabled{% endif %}><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete results</button>
+    </div>
+
+    <p class="small-muted mb-3"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        Horizon {{ info.horizon }} · {{ info.k_folds }} rolling-origin window{{ 's' if info.k_folds != 1 }} · seasonal period {{ info.season }} ·
+        {{ info.train_series }} training series · test: {{ info.continuing_series }} continued, {{ info.new_series }} new series ·
+        {{ info.max_steps }} training steps{% if info.trials %} · {{ info.trials }} tuning trial{{ 's' if info.trials != 1 }} per model{% endif %} · {{ info.device }}</p>
+
+    {% if info.skipped %}
+    <div class="alert alert-warning" role="alert">
+        <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>Some models were skipped</div>
+        <ul class="mb-0 small">{% for item in info.skipped %}<li><strong>{{ item.model }}</strong>: {{ item.reason }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    {% if results.best %}
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">Best model on the test set (MAE)</div>
+                <div class="value text mt-1">{{ results.best.model }}</div>
+            </div>
+        </div>
+        {% for metric in ["MAE", "MASE"] %}
+        <div class="col-4 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">{{ metric }}<span class="d-none d-md-inline small-muted"> (test, best model)</span></div>
+                <div class="value tabular-nums mt-1">{{ '%.3g' % results.best["values"][metric] }}</div>
+            </div>
+        </div>
+        {% endfor %}
+        {% if results.best.gain is defined %}
+        <div class="col-4 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">MAE vs. seasonal naive</div>
+                <div class="value tabular-nums mt-1">{{ '%+.1f' % (-results.best.gain) }}%</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <ul class="nav nav-underline mb-4 flex-nowrap overflow-auto" role="tablist">
+        {% for key, label, icon in [("metrics", "Metrics", "table"), ("forecasts", "Forecasts", "graph-up-arrow"),
+                                     ("explain", "Explainability", "lightbulb"), ("downloads", "Downloads", "download")] %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link text-nowrap {% if loop.first %}active{% endif %}" id="tab-{{ key }}" data-bs-toggle="tab" data-bs-target="#pane-{{ key }}"
+                    type="button" role="tab" aria-controls="pane-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+                <i class="bi bi-{{ icon }} me-1" aria-hidden="true"></i>{{ label }}
+            </button>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="pane-metrics" role="tabpanel" aria-labelledby="tab-metrics" tabindex="0">
+            {% if results.test %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Test series (Test.csv): last {{ info.horizon }} points of every series</span>
+                    <span class="small-muted fw-normal"><i class="bi bi-check-circle-fill text-success me-1" aria-hidden="true"></i>Lowest value per metric</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table metric-table">
+                        <thead><tr><th scope="col">Model</th>{% for metric in metrics %}<th scope="col">{{ metric }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                            {% for row in results.test %}
+                            <tr class="{% if results.best and row.model == results.best.model %}is-best{% endif %}">
+                                <th scope="row" class="fw-semibold text-body text-nowrap" style="text-transform:none; letter-spacing:0; font-size:.9rem">{{ row.model }}{% if row.model == 'Seasonal naive' %} <span class="badge rounded-pill text-bg-light border fw-medium">baseline</span>{% endif %}</th>
+                                {% for metric in metrics %}
+                                {% set value = row["values"][metric] %}
+                                <td class="tabular-nums {% if row.best[metric] %}best{% endif %}">{{ '%.3f' % value if value == value else '–' }}{% if row.best[metric] %} <i class="bi bi-check-circle-fill" aria-label="best"></i>{% endif %}</td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+            {% if results.kfold %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Rolling-origin validation (Train.csv): {{ info.k_folds }} window{{ 's' if info.k_folds != 1 }} of {{ info.horizon }} points</span>
+                    <span class="small-muted fw-normal">Mean ± standard deviation across windows</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table metric-table">
+                        <thead><tr><th scope="col">Model</th>{% for metric in metrics %}<th scope="col">{{ metric }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                            {% for row in results.kfold %}
+                            <tr>
+                                <th scope="row" class="fw-semibold text-body text-nowrap" style="text-transform:none; letter-spacing:0; font-size:.9rem">{{ row.model }}</th>
+                                {% for metric in metrics %}<td class="text-nowrap tabular-nums">{{ row["values"][metric] }}</td>{% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+            {% if results.metric_plots %}
+            <div class="row g-3 mb-4">{% for item in results.metric_plots %}<div class="col-12">{{ figure(item) }}</div>{% endfor %}</div>
+            {% endif %}
+            <details class="card p-3">
+                <summary class="fw-semibold" style="cursor: pointer">About these metrics</summary>
+                <dl class="row small mt-3 mb-0">
+                    <dt class="col-sm-3">MAE / RMSE</dt><dd class="col-sm-9">Mean absolute error / root mean squared error, in the unit of the Target, over all the forecast points. RMSE weighs large errors more.</dd>
+                    <dt class="col-sm-3">sMAPE</dt><dd class="col-sm-9">Symmetric mean absolute percentage error (0–200%): the error relative to the size of the values.</dd>
+                    <dt class="col-sm-3">MASE</dt><dd class="col-sm-9">The error of each series divided by the error of the seasonal naive forecast on its history, averaged over the series. Below 1, the model beats repeating the last cycle.</dd>
+                    <dt class="col-sm-3">Validation vs. test</dt><dd class="col-sm-9">Validation: the last {{ info.k_folds }} horizon(s) of every Train.csv series, each forecast by a network trained on the points before it (also used to tune). Test: the last {{ info.horizon }} points of every Test.csv series, forecast by the final networks trained on all of Train.csv.</dd>
+                </dl>
+            </details>
+        </div>
+
+        <div class="tab-pane fade" id="pane-forecasts" role="tabpanel" aria-labelledby="tab-forecasts" tabindex="0">
+            {% if results.forecasts %}
+            <p class="small-muted">Observed values (black) and forecasts (blue) for six test series; the shaded area is the forecast horizon.
+                {% if info.future_forecasts %}The second figure forecasts the next {{ info.horizon }} points after the end of the data.{% elif info.future_covariates %}No forecasts beyond the data: they need the covariates known in advance for future points (use the code in Downloads with your own values).{% endif %}
+                All the test forecasts are in <code>Forecasts/test_forecasts.csv</code>.</p>
+            <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
+                {% for model in results.forecasts %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#fc-{{ loop.index }}" type="button" role="tab"
+                            aria-selected="{{ 'true' if loop.first else 'false' }}">{{ model }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="tab-content">
+                {% for model, items in results.forecasts.items() %}
+                <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="fc-{{ loop.index }}" role="tabpanel">
+                    <div class="row g-3">{% for item in items %}<div class="col-12">{{ figure(item) }}</div>{% endfor %}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No forecast figures were produced.</p>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-explain" role="tabpanel" aria-labelledby="tab-explain" tabindex="0">
+            {% if results.explain %}
+            <p class="small-muted">Integrated gradients attribute each forecast to the inputs of the network: the past Target values and covariates over the lookback, the covariates known in advance over the horizon, and the static features.
+                Left: each input's share of the total attribution, averaged over the forecast points of up to 30 test series. Right: where in time the attribution falls (0 is the first forecast point).</p>
+            <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
+                {% for model in results.explain %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#ig-{{ loop.index }}" type="button" role="tab"
+                            aria-selected="{{ 'true' if loop.first else 'false' }}">{{ model }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="tab-content">
+                {% for model, item in results.explain.items() %}
+                <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="ig-{{ loop.index }}" role="tabpanel">
+                    {{ figure(item) }}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No explanations were produced.</p>{% endif %}
+            {% if info.notes %}<ul class="small-muted mt-3">{% for note in info.notes %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-downloads" role="tabpanel" aria-labelledby="tab-downloads" tabindex="0">
+            {% if results.tables %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Forecasts</div>
+                {{ file_list(results.tables, 'filetype-csv') }}
+            </div>
+            {% endif %}
+            {% if results.models %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Trained models</div>
+                <div class="p-3 small-muted border-bottom">Trained on all of Train.csv. <a href="#use-models">How to use them on new data</a> is shown below.</div>
+                {{ file_list(results.models, 'box-seam') }}
+            </div>
+            {{ forecast_usage_card(results.models, results.best.model if results.best else None, info) }}
+            {% endif %}
+            <div class="card">
+                <div class="card-header py-3">All files <span class="small-muted fw-normal">({{ results.files | length }})</span></div>
+                <div class="table-responsive" style="max-height: 420px">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <tbody>
+                            {% for item in results.files %}
+                            <tr>
+                                <td class="small text-break">{{ item.path }}</td>
+                                <td class="small-muted text-end text-nowrap tabular-nums">{{ filesize(item.size) }}</td>
+                                <td class="text-end"><a href="{{ url_for('download_file', filepath=item.path) }}" aria-label="Download {{ item.path }}"><i class="bi bi-download" aria-hidden="true"></i></a></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="lightbox" tabindex="-1" aria-labelledby="lightbox-title" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h6" id="lightbox-title"></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center"><img class="lightbox-img" alt=""></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="confirm-delete" tabindex="-1" aria-labelledby="confirm-delete-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" action="{{ url_for('clear_files') }}" method="post">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="confirm-delete-title">Delete all results?</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">All metrics, plots, forecasts and trained models will be permanently deleted. Download them first if you need them.</div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger"><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('[data-copy-target]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var code = document.getElementById(button.getAttribute('data-copy-target')).textContent;
+            var label = button.querySelector('span');
+            navigator.clipboard.writeText(code).then(function () {
+                label.textContent = 'Copied';
+                setTimeout(function () { label.textContent = 'Copy'; }, 1500);
+            }, function () { label.textContent = 'Select and copy'; });
+        });
+    });
+    document.getElementById('lightbox').addEventListener('show.bs.modal', function (event) {
+        var trigger = event.relatedTarget;
+        var image = this.querySelector('.lightbox-img');
+        image.src = trigger.getAttribute('data-src');
+        image.alt = trigger.getAttribute('data-title');
+        this.querySelector('.modal-title').textContent = trigger.getAttribute('data-title');
+    });
+</script>
+{% endblock %}
