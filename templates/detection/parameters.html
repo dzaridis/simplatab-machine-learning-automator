@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Configure · Object Detection{% endblock %}
+
+{% block content %}
+{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2, automator) }}
+{% set is3d = summary.dim == 3 %}
+{% set unit = 'volumes' if is3d else 'images' %}
+
+<div class="container pb-4">
+    <form id="params-form" action="{{ url_for('detection_parameters') }}" method="post" novalidate data-max-folds="{{ summary.max_folds }}">
+        <div class="row g-4">
+            <div class="col-lg-8 order-2 order-lg-1">
+                {% if previous_results %}
+                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
+                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+                        <div><div class="fw-semibold">Starting this run replaces the previous results</div>
+                            <div class="small-muted">Download them first if you want to keep them.</div></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_all') }}">
+                        <i class="bi bi-file-earmark-zip me-1" aria-hidden="true"></i>Download previous results</a>
+                </div>
+                {% endif %}
+
+                {% if summary.warnings %}
+                <div class="alert alert-warning d-flex gap-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
+                    <div><div class="fw-semibold">Check your data</div>
+                        <ul class="mb-0 ps-3">{% for warning in summary.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Networks</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">All networks are pretrained on COCO (330,000 images, 80 object classes) and fine-tuned on your boxes.
+                            {% if is3d %}Volumes are processed slice by slice: each slice is given with its two neighbours as an RGB image, and the boxes of consecutive slices are merged into 3D boxes.{% endif %}</p>
+                        {% for group, title, subtitle in [
+                            ("cnn", "Convolutional detectors (torchvision)", "Anchors or dense predictions refined by non-maximum suppression; robust and well understood."),
+                            ("transformer", "Detection transformers (Hugging Face)", "End-to-end set prediction, no anchors or non-maximum suppression; RT-DETRv2 and D-FINE are the current state of the art."),
+                        ] %}
+                        <div class="{% if not loop.first %}mt-4{% endif %}">
+                            <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+                                <div><h2>{{ title }}</h2><p class="help">{{ subtitle }}</p></div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Select {{ title }}">
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="1">Select all</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="0">None</button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                {% for d in detectors if d.family == group %}
+                                <div class="col-md-6">
+                                    <label class="option-card">
+                                        <input type="checkbox" name="{{ d.key }}" value="true" data-group="{{ group }}" {% if d.default %}checked{% endif %}>
+                                        <span class="option-body">
+                                            <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                            <span>
+                                                <span class="title d-block">{{ d.name }}{% if d.default %} <span class="badge rounded-pill text-bg-light border fw-medium ms-1">Recommended</span>{% endif %}{% if d.light %} <span class="badge rounded-pill text-bg-light border fw-medium ms-1">CPU-friendly</span>{% endif %}</span>
+                                                <span class="desc d-block">{{ d.description }}</span>
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one network.</div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-sliders me-2 text-primary" aria-hidden="true"></i>Validation</div>
+                    <div class="settings-section">
+                        <div class="row g-2">
+                            {% for value, title, desc, speed in [
+                                ("kfold", "K-fold cross-validation", "Train.zip is split into K folds (a patient's " ~ unit ~ " stay together, classes balanced); each network is fine-tuned K times and scored on the left-out fold, then retrained on all of Train.zip. Mean ± SD across folds.", "K + 1 trainings per network"),
+                                ("holdout", "Hold-out (fast)", "One split: the network is fine-tuned on the training part with early stopping on the validation part, scored on it and kept as the final network.", "1 training per network"),
+                            ] %}
+                            <div class="col-md-6">
+                                <label class="option-card">
+                                    <input type="radio" name="validation" value="{{ value }}" {% if value == 'kfold' %}checked{% endif %}>
+                                    <span class="option-body">
+                                        <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                        <span>
+                                            <span class="title d-block">{{ title }}</span>
+                                            <span class="desc d-block">{{ desc }}</span>
+                                            <span class="speed"><i class="bi bi-clock" aria-hidden="true"></i>{{ speed }}</span>
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="settings-section" id="kfold-settings">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="k_folds">Number of folds</label></h2>
+                                <p class="help">Within each fold, 15% of the training {{ unit }} are kept aside for early stopping.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="{{ [5, summary.max_folds] | min }}" min="2" max="{{ summary.max_folds }}" aria-describedby="k-folds-feedback">
+                                <div class="form-text" id="k-folds-feedback">At most {{ summary.max_folds }}{% if summary.grouped %}: {{ summary.groups }} patient groups{% endif %}.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section d-none" id="holdout-settings">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="holdout_percent">Validation share</label></h2>
+                                <p class="help">Share of Train.zip kept for validation and early stopping.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="holdout_percent" name="holdout_percent">
+                                    {% for value in [10, 15, 20, 25, 30] %}<option value="{{ value }}" {% if value == 20 %}selected{% endif %}>{{ value }}%</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <p class="help mb-0">The score threshold of the drawn boxes, precision, recall and {{ 'volume' if is3d else 'image' }}-level sensitivity is the one with the best F1 on the validation {{ unit }} (a detection is correct when its IoU with a box of the same class is at least {{ main_iou }}).</p>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-lightning-charge me-2 text-primary" aria-hidden="true"></i>Training</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">
+                            {% if gpu %}<i class="bi bi-gpu-card me-1 text-success" aria-hidden="true"></i>GPU detected: {{ gpu }}.
+                            {% else %}<i class="bi bi-cpu me-1" aria-hidden="true"></i>No GPU detected ({{ cpu_count }} CPU cores): fine-tuning detectors on CPU is slow. Prefer the CPU-friendly networks, a small image size and the hold-out validation, or use the GPU Docker image.{% endif %}
+                        </p>
+                        <div class="row g-3">
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="image_size">Image size</label>
+                                <select class="form-select" id="image_size" name="image_size">
+                                    {% for value in sizes %}<option value="{{ value }}" {% if value == 640 %}selected{% endif %}>{{ value }} px{% if value == 640 %} (default){% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="epochs">Maximum epochs</label>
+                                <input type="number" class="form-control" id="epochs" name="epochs" value="30" min="1" max="300">
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="patience">Early-stopping patience</label>
+                                <input type="number" class="form-control" id="patience" name="patience" value="5" min="1" max="50">
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="batch_size">Batch size</label>
+                                <select class="form-select" id="batch_size" name="batch_size">
+                                    {% for value in [2, 4, 8, 16] %}<option value="{{ value }}" {% if value == 4 %}selected{% endif %}>{{ value }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help mt-3 mb-0">Images are resized to a square of this size (SSDLite always uses 320 px); larger sizes find smaller objects but are slower. Training stops when the validation mAP has not improved for the patience. Lower the batch size if the GPU runs out of memory.</p>
+                    </div>
+                    <div class="settings-section">
+                        <h2 class="mb-1">Data augmentation</h2>
+                        <p class="help mb-3">Random variations of the training {{ 'slices' if is3d else 'images' }}; the boxes follow the flips.</p>
+                        <div class="row g-2">
+                            {% for key, title, desc, checked in [
+                                ("intensity", "Brightness and contrast", "±20% / ±10%, for scanner and exposure differences.", true),
+                                ("horizontal_flip", "Horizontal flips", "Off by default: left and right matter in many medical images.", false),
+                                ("vertical_flip", "Vertical flips", "Only for images without an up/down orientation (e.g. microscopy).", false),
+                            ] %}
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="{{ key }}" name="{{ key }}" value="true" {% if checked %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="{{ key }}">{{ title }}</label>
+                                    <div class="small-muted">{{ desc }}</div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% if is3d %}
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="negative_ratio">Slices without objects</label></h2>
+                                <p class="help">Training slices without boxes per slice with boxes (at least two per volume), so the networks learn normal anatomy without spending most of the time on empty slices.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="negative_ratio" name="negative_ratio">
+                                    {% for value in ["0.5", "1", "2", "3"] %}<option value="{{ value }}" {% if value == "1" %}selected{% endif %}>{{ value }} per positive slice</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                {% if summary.medical %}
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-heart-pulse me-2 text-primary" aria-hidden="true"></i>Medical image preparation</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="window">Intensity window</label></h2>
+                                <p class="help">Images and volumes are converted to 8 bits. {% if summary.has_ct %}CT windows (center / width in Hounsfield units) select the tissue of interest. {% endif %}Automatic uses the window of the DICOM header, else the 0.5–99.5 percentiles{% if is3d %} of the whole volume{% endif %}.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="window" name="window">
+                                    {% for value, label in window_labels if summary.has_ct or value == 'auto' %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="card">
+                    <div class="card-header py-3"><i class="bi bi-lightbulb me-2 text-primary" aria-hidden="true"></i>Explainability (D-RISE)</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">D-RISE shows which regions a detection depends on: the image is given to the network many times with random parts hidden, and the regions whose hiding loses the detection light up. It works with every network; each mask costs one prediction.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label fw-semibold" for="drise_images">Explained test {{ unit }} per network</label>
+                                <input type="number" class="form-control" id="drise_images" name="drise_images" value="4" min="0" max="12">
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label fw-semibold" for="drise_masks">Masks per explanation</label>
+                                <select class="form-select" id="drise_masks" name="drise_masks">
+                                    {% for value in [100, 300, 1000] %}<option value="{{ value }}" {% if value == 300 %}selected{% endif %}>{{ value }}{% if value == 300 %} (default){% elif value == 1000 %} (sharper, GPU){% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 order-1 order-lg-2">
+                <div class="card p-4" style="position: sticky; top: 5.5rem;">
+                    <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
+                    <div class="row g-2 mb-3 text-center">
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_images }}</div><div class="small-muted">train {{ unit }}</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.test_images }}</div><div class="small-muted">test {{ unit }}</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.dim }}D</div><div class="small-muted">{{ {'coco': 'COCO', 'yolo': 'YOLO', 'voc': 'VOC', 'csv': 'CSV', 'mask': 'masks'}[summary.format] }}</div></div></div>
+                    </div>
+                    <div class="table-responsive mb-3">
+                        <table class="table table-sm mb-0 small">
+                            <thead><tr><th scope="col">Class</th><th scope="col" class="text-end">Train boxes</th><th scope="col" class="text-end">Test boxes</th></tr></thead>
+                            <tbody>{% for row in summary.class_counts %}<tr><td class="fw-semibold">{{ row['class'] }}</td><td class="text-end tabular-nums">{{ row.train_boxes }}</td><td class="text-end tabular-nums">{{ row.test_boxes }}</td></tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
+                    <dl class="row small mb-3">
+                        <dt class="col-7 fw-normal small-muted">{{ unit | capitalize }} without boxes</dt><dd class="col-5 tabular-nums mb-1">{{ summary.train_negatives }} train, {{ summary.test_negatives }} test</dd>
+                        {% if summary.grouped %}<dt class="col-7 fw-normal small-muted">Patient groups</dt><dd class="col-5 tabular-nums mb-1">{{ summary.groups }}</dd>{% endif %}
+                        {% if summary.size_range %}
+                        {% if is3d %}<dt class="col-7 fw-normal small-muted">Slices</dt><dd class="col-5 tabular-nums mb-1">{{ summary.size_range.slices_min }}–{{ summary.size_range.slices_max }}</dd>
+                        <dt class="col-7 fw-normal small-muted">Slice side (px)</dt><dd class="col-5 tabular-nums mb-1">{{ summary.size_range.side_min }}–{{ summary.size_range.side_max }}</dd>
+                        {% else %}<dt class="col-7 fw-normal small-muted">Image side (px)</dt><dd class="col-5 tabular-nums mb-1">{{ summary.size_range.min }}–{{ summary.size_range.max }}</dd>{% endif %}
+                        {% endif %}
+                    </dl>
+                    <div class="d-flex flex-wrap gap-1 mb-3">{% for kind, count in summary.kinds.items() %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ {'dicom': 'DICOM', 'nifti': 'NIfTI', 'raster': 'PNG/JPEG/TIFF', 'dicom series': 'DICOM series'}.get(kind, kind) }} · {{ count }}</span>{% endfor %}</div>
+                    <a class="small" href="{{ url_for('detection') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <div class="container px-0 d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between">
+                <div class="small-muted d-none d-sm-block" id="run-summary" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary btn-lg" id="run-btn">
+                    <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run pipeline
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/detection_parameters.js') }}"></script>
+{% endblock %}

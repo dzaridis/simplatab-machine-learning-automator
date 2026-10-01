@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Upload data · Object Detection{% endblock %}
+
+{% block content %}
+{{ page_header("Upload your images and boxes", "Add a training set and a test set as zip files, each with its images (or volumes) and their annotations. The annotation format is detected automatically.", 1, automator) }}
+
+<div class="container pb-5">
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <form id="upload-form" action="{{ url_for('detection_upload') }}" method="post" enctype="multipart/form-data" novalidate
+                  data-max-bytes="{{ max_gb * 1024 * 1024 * 1024 }}">
+                <div class="row g-3">
+                    {% for kind, title, help in [
+                        ("train", "Train.zip", "Used for validation and to train the final networks."),
+                        ("test", "Test.zip", "Held out: only used for the final, external evaluation."),
+                    ] %}
+                    <div class="col-md-6">
+                        <div class="dropzone" data-dropzone="{{ kind }}">
+                            <input type="file" id="{{ kind }}_zip" name="{{ kind }}_zip" accept=".zip,application/zip"
+                                   aria-describedby="{{ kind }}-help" required>
+                            <div class="dz-empty">
+                                <div class="dz-icon mb-2"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i></div>
+                                <label for="{{ kind }}_zip" class="fw-semibold d-block">{{ title }}</label>
+                                <div class="small-muted">Drag and drop, or <span class="text-primary fw-semibold">browse</span></div>
+                                <div class="small-muted mt-2" id="{{ kind }}-help">{{ help }}</div>
+                            </div>
+                            <div class="dz-file d-none">
+                                <div class="file-chip">
+                                    <span class="icon-badge"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i></span>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="small-muted">{{ title }}</div>
+                                        <div class="name" data-field="name"></div>
+                                        <div class="small-muted tabular-nums" data-field="meta"></div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="replace">Replace</button>
+                                </div>
+                                <ul class="check-list" data-field="checks" aria-live="polite"></ul>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="card mt-4 p-3 d-none" id="upload-progress" aria-live="polite">
+                    <div class="d-flex justify-content-between small mb-2">
+                        <span class="fw-semibold" id="upload-label">Uploading…</span>
+                        <span class="tabular-nums small-muted" id="upload-detail"></span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="upload-bar">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="alert alert-danger mt-4 d-none" role="alert" id="upload-error"></div>
+
+                <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 mt-4">
+                    <div class="small-muted" id="form-status" aria-live="polite">Add both zip files to continue.</div>
+                    <button type="submit" class="btn btn-primary btn-lg" id="submit-btn" disabled>
+                        <span class="btn-label">Upload and continue<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></span>
+                        <span class="btn-busy d-none"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Uploading…</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card p-4 mb-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-list-check me-2 text-primary" aria-hidden="true"></i>Data requirements</h2>
+                <ul class="check-list mt-0">
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Two zip files, at most {{ max_gb }} GB each, with the images and one annotation format</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>2D: DICOM, NIfTI, PNG (8 or 16-bit), JPEG, BMP, TIFF</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>3D: NIfTI volumes, multi-frame DICOM or one folder of DICOM slices per series, with 3D boxes (CSV) or NIfTI masks</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Boxes in pixels (voxels) of the original image; images without boxes are negatives</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Sub-folders (one per patient) keep a patient's images in the same validation fold</span></li>
+                </ul>
+            </div>
+            <div class="card p-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-diagram-2 me-2 text-primary" aria-hidden="true"></i>Annotation formats</h2>
+                <div class="accordion accordion-flush small" id="formats">
+                    {% for key, title, layout, note in [
+                        ("coco", "COCO JSON", "Train.zip\n├── annotations.json\n└── images/scan_001.png", "\"images\", \"annotations\" (bbox = [x, y, width, height]) and \"categories\"."),
+                        ("yolo", "YOLO", "Train.zip\n├── classes.txt  (or data.yaml)\n├── images/scan_001.png\n└── labels/scan_001.txt", "One line per box: class cx cy w h, normalised to [0, 1]."),
+                        ("voc", "Pascal VOC", "Train.zip\n├── scan_001.png\n└── scan_001.xml", "&lt;object&gt; with &lt;name&gt; and &lt;bndbox&gt; (xmin, ymin, xmax, ymax)."),
+                        ("csv", "CSV (2D or 3D)", "Train.zip\n├── boxes.csv\n├── case_001.nii.gz\n└── case_002/  (DICOM series)", "image, class, x_min, y_min, x_max, y_max; add z_min, z_max (first and last slice) for 3D boxes. An image listed without box is a negative."),
+                        ("mask", "Masks (2D or 3D)", "Train.zip\n├── classes.txt  (1,lesion)\n├── case_001.nii.gz\n└── masks/case_001.nii.gz", "Label images with the image names; each connected region of a label is a box."),
+                    ] %}
+                    <div class="accordion-item">
+                        <h3 class="accordion-header">
+                            <button class="accordion-button collapsed py-2 small fw-semibold" type="button" data-bs-toggle="collapse" data-bs-target="#format-{{ key }}" aria-expanded="false" aria-controls="format-{{ key }}">{{ title }}</button>
+                        </h3>
+                        <div id="format-{{ key }}" class="accordion-collapse collapse" data-bs-parent="#formats">
+                            <div class="accordion-body px-0">
+                                <pre class="log-console mb-2" style="max-height:none">{{ layout }}</pre>
+                                <div class="small-muted">{{ note | safe }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="card p-4 mt-4">
+                <h2 class="h6 fw-bold mb-2"><i class="bi bi-download me-2 text-primary" aria-hidden="true"></i>Example data</h2>
+                <p class="small-muted mb-3">Synthetic lesions to try the automator: 2D radiograph-like images of 40 patients (COCO JSON), and 3D CT-like volumes with nodules (NIfTI, CSV boxes).</p>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for name, label in [("Train.zip", "2D Train.zip"), ("Test.zip", "2D Test.zip"), ("Train3D.zip", "3D Train.zip"), ("Test3D.zip", "3D Test.zip")] %}
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('detection_example', name=name) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>{{ label }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/detection_upload.js') }}"></script>
+{% endblock %}

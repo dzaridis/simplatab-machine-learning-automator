@@ -27,8 +27,11 @@ from Helpers.image.io import CT_WINDOWS
 from Helpers.image.models import BACKBONES, BY_KEY as BACKBONES_BY_KEY
 from Helpers.forecasting import data as forecast_data
 from Helpers.forecasting.models import MODELS as FORECAST_MODELS
+from Helpers.detection import dataset as detection_dataset
+from Helpers.detection.models import DETECTORS, BY_KEY as DETECTORS_BY_KEY
+from Helpers.detection.metrics import MAIN_IOU
 from web.catalog import AUTOMATORS, MODELS, THRESHOLD_METRICS, get_automator
-from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES
+from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES, DETECTION_PHASES
 
 # Set in the Docker image by the release CI (same as the image and release tags)
 APP_VERSION = os.environ.get("SIMPLATAB_VERSION", "dev")
@@ -55,6 +58,8 @@ os.makedirs(TEMP_OUTPUT_FOLDER, exist_ok=True)
 
 # Image automator: uploaded zips, extracted class folders and the preprocessed image cache
 IMAGE_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_images')
+# Detection automator: uploaded zips, extracted images and the cache of 8-bit images and volumes
+DETECTION_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_detection')
 # Forecasting automator: Train.csv, Test.csv, their summary and the run parameters
 FORECAST_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_forecasting')
 FORECAST_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "time-series-forecasting")
@@ -442,6 +447,141 @@ def image_parameters():
 
 
 # ---------------------------------------------------------------------------
+# Object detection automator: upload -> parameters -> run -> results
+# ---------------------------------------------------------------------------
+
+DETECTION_SIZES = [320, 512, 640, 800, 1024]
+
+
+def detection_summary():
+    path = os.path.join(DETECTION_INPUT_FOLDER, "summary.json")
+    return detection_dataset.load_json(path) if os.path.exists(path) else None
+
+
+def _detection_upload_error(message):
+    if _wants_json():
+        return jsonify({"error": message}), 400
+    flash(message, 'danger')
+    return redirect(url_for('detection'))
+
+
+@app.route('/detection')
+def detection():
+    return render_template('detection/upload.html', automator=get_automator("object-detection"),
+                           max_gb=image_dataset.MAX_ZIP_BYTES // 1024 ** 3)
+
+
+DETECTION_EXAMPLES = ("Train.zip", "Test.zip", "Train3D.zip", "Test3D.zip")
+DETECTION_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "object-detection")
+
+
+@app.route('/detection/example/<name>')
+def detection_example(name):
+    if name not in DETECTION_EXAMPLES:
+        abort(404)
+    return send_from_directory(DETECTION_EXAMPLE_FOLDER, name, as_attachment=True)
+
+
+@app.route('/detection/upload', methods=['POST'])
+def detection_upload():
+    if job.running:
+        return _detection_upload_error('A pipeline is already running. Wait for it to finish before uploading new data.')
+    files = {split: request.files.get(f'{split}_zip') for split in ("train", "test")}
+    if not all(f and f.filename for f in files.values()):
+        return _detection_upload_error('Add both Train.zip and Test.zip.')
+    if not all(f.filename.lower().endswith('.zip') for f in files.values()):
+        return _detection_upload_error('Invalid file type: upload two .zip files.')
+    shutil.rmtree(DETECTION_INPUT_FOLDER, ignore_errors=True)
+    os.makedirs(DETECTION_INPUT_FOLDER)
+    try:
+        for split, upload in files.items():
+            archive = os.path.join(DETECTION_INPUT_FOLDER, f"{split}.zip")
+            upload.save(archive)
+            if os.path.getsize(archive) > image_dataset.MAX_ZIP_BYTES:
+                raise image_dataset.DatasetError(
+                    f"{upload.filename} is larger than {image_dataset.MAX_ZIP_BYTES // 1024 ** 3} GB.")
+            image_dataset.extract_zip(archive, os.path.join(DETECTION_INPUT_FOLDER, split))
+            os.remove(archive)
+        summary = detection_dataset.summarize(os.path.join(DETECTION_INPUT_FOLDER, "train"),
+                                              os.path.join(DETECTION_INPUT_FOLDER, "test"))
+    except image_dataset.DatasetError as e:
+        shutil.rmtree(DETECTION_INPUT_FOLDER, ignore_errors=True)
+        return _detection_upload_error(str(e))
+    if summary["errors"]:
+        shutil.rmtree(DETECTION_INPUT_FOLDER, ignore_errors=True)
+        return _detection_upload_error(" ".join(summary["errors"]))
+    detection_dataset.save_json(summary, os.path.join(DETECTION_INPUT_FOLDER, "summary.json"))
+    if _wants_json():
+        return jsonify({"redirect": url_for('detection_parameters')})
+    return redirect(url_for('detection_parameters'))
+
+
+def detection_params_from_form(form, summary):
+    selected = [d.key for d in DETECTORS if form.get(d.key) == 'true']
+    if not selected:
+        raise ValueError('Select at least one network.')
+    validation = "holdout" if form.get('validation') == 'holdout' else "kfold"
+    size = _bounded(form, 'image_size', int, 320, 1024, 640)
+    return {
+        "models": selected,
+        "validation": validation,
+        "k_folds": _bounded(form, 'k_folds', int, 2, max(2, summary["max_folds"]), min(5, summary["max_folds"])),
+        "holdout_fraction": _bounded(form, 'holdout_percent', int, 10, 40, 20) / 100,
+        "epochs": _bounded(form, 'epochs', int, 1, 300, 30),
+        "patience": _bounded(form, 'patience', int, 1, 50, 5),
+        "batch_size": _bounded(form, 'batch_size', int, 1, 64, 4),
+        "image_size": size if size in DETECTION_SIZES else 640,
+        "lr_scale": _bounded(form, 'lr_scale', float, 0.1, 10, 1.0),
+        "augmentation": {key: form.get(key) == 'true' for key in ("horizontal_flip", "vertical_flip", "intensity")},
+        "window": form.get('window') if form.get('window') in dict(WINDOW_LABELS) else "auto",
+        "negative_ratio": _bounded(form, 'negative_ratio', float, 0, 5, 1.0),
+        "drise_images": _bounded(form, 'drise_images', int, 0, 12, 4),
+        "drise_masks": _bounded(form, 'drise_masks', int, 50, 2000, 300),
+        # SIMPLATAB_PRETRAINED=0: networks without pretrained weights (offline use, tests)
+        "pretrained": os.environ.get("SIMPLATAB_PRETRAINED", "1") != "0",
+    }
+
+
+@app.route('/detection/parameters', methods=['GET', 'POST'])
+def detection_parameters():
+    if job.running:
+        return redirect(url_for('run'))
+    summary = detection_summary()
+    if summary is None:
+        flash('Upload Train.zip and Test.zip first.', 'warning')
+        return redirect(url_for('detection'))
+
+    if request.method == 'POST':
+        try:
+            params = detection_params_from_form(request.form, summary)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(url_for('detection_parameters'))
+        detection_dataset.save_json(params, os.path.join(DETECTION_INPUT_FOLDER, "params.json"))
+        names = [DETECTORS_BY_KEY[key].name for key in params["models"]]
+        clear_materials()
+        from Helpers.detection.pipeline import run_detection_pipeline
+        if not job.start(lambda: run_detection_pipeline(DETECTION_INPUT_FOLDER, params), names,
+                         automator="object-detection", phases=DETECTION_PHASES, initial_phase="prep"):
+            flash('A pipeline is already running.', 'warning')
+        return redirect(url_for('run'))
+
+    import torch
+    return render_template(
+        'detection/parameters.html',
+        automator=get_automator("object-detection"),
+        summary=summary,
+        previous_results=has_results(),
+        detectors=DETECTORS,
+        sizes=DETECTION_SIZES,
+        window_labels=WINDOW_LABELS,
+        main_iou=MAIN_IOU[summary["dim"]],
+        gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        cpu_count=os.cpu_count(),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Time series forecasting automator: upload -> parameters -> run -> results
 # ---------------------------------------------------------------------------
 
@@ -747,6 +887,56 @@ def collect_forecast_results(root):
     return results
 
 
+def collect_detection_results(root):
+    """What the results page of the detection automator shows, read from the Materials folder."""
+    with open(os.path.join(root, "run_info.json")) as f:
+        info = json.load(f)
+    metrics = info["metrics"]
+    results = {"info": info, "automator": get_automator("object-detection"), "metrics": metrics, "test": None,
+               "validation": None, "best": None, "curves": [], "detections": {}, "drise": {}, "models": [],
+               "predictions": [], "files": []}
+    for dirpath, _, filenames in os.walk(root):
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            results["files"].append({"path": _relative(path, root), "size": os.path.getsize(path)})
+    results["files"].sort(key=lambda f: f["path"])
+    test_path = os.path.join(root, "test_results.xlsx")
+    if os.path.exists(test_path):
+        test = pd.read_excel(test_path, index_col=0)
+        best = {m: test[m].max() for m in metrics}
+        results["test"] = [{"model": model, "values": {m: float(row[m]) for m in metrics},
+                            "best": {m: bool(row[m] == best[m]) for m in metrics}} for model, row in test.iterrows()]
+        top = info.get("best_model")
+        if top in test.index:
+            results["best"] = {"model": top, "values": {m: float(test.loc[top, m]) for m in metrics}}
+    validation_path = os.path.join(root, info.get("validation_file", ""))
+    if os.path.isfile(validation_path):
+        table = pd.read_excel(validation_path, index_col=0)
+        results["validation"] = [{"model": model, "values": {m: (f"{row[m]:.3f}" if isinstance(row[m], float) else str(row[m]))
+                                                             for m in metrics}} for model, row in table.iterrows()]
+    for name, title in (("test_metrics.png", "Test metrics by network"), ("PR_CURVES.png", "Precision-recall curves"),
+                        ("FROC_CURVES.png", "FROC curves"), ("ap_per_class.png", "AP per class")):
+        item = _figure(os.path.join(root, "Detection_Curves", name), root, title)
+        if item:
+            results["curves"].append(item)
+    for model in [row["model"] for row in results["test"] or []]:
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in model)
+        for folder, key, prefix in (("Detections", "detections", ""), ("Explainability", "drise", "D-RISE · ")):
+            paths = sorted(glob.glob(os.path.join(root, folder, f"{safe}_*.png")))
+            if paths:
+                results[key][model] = [{"path": _relative(p, root),
+                                        "title": prefix + os.path.basename(p)[len(safe) + 1:-4]} for p in paths]
+        exported = info.get("models", {}).get(model)
+        if exported and os.path.exists(os.path.join(root, "Models", exported)):
+            path = os.path.join(root, "Models", exported)
+            results["models"].append({"path": _relative(path, root), "name": model, "size": os.path.getsize(path),
+                                      "file": exported, "library": "torchvision" if exported.endswith(".pt") else "transformers"})
+        path = os.path.join(root, "Predictions", f"{safe}_test_predictions.csv")
+        if os.path.exists(path):
+            results["predictions"].append({"path": _relative(path, root), "name": model, "size": os.path.getsize(path)})
+    return results
+
+
 def _run_automator(root):
     path = os.path.join(root, "run_info.json")
     if os.path.exists(path):
@@ -758,6 +948,8 @@ def _run_automator(root):
 @app.route('/results')
 def results():
     root = materials_dir()
+    if _run_automator(root) == "object-detection":
+        return render_template('detection/results.html', results=collect_detection_results(root))
     if _run_automator(root) == "time-series-forecasting":
         return render_template('forecasting/results.html', results=collect_forecast_results(root),
                                metrics=FORECAST_METRICS)

@@ -1,6 +1,6 @@
 """What the web interface offers: the automators and the models of the tabular automator
 (the networks of the image automator are in Helpers/image/models.py, the forecasters in
-Helpers/forecasting/models.py).
+Helpers/forecasting/models.py, the detectors in Helpers/detection/models.py).
 
 Adding an automator means adding an entry to ``AUTOMATORS``: the landing page, the
 navigation and the automator pages are generated from it. An automator with
@@ -89,6 +89,35 @@ AUTOMATORS = [
             "ROC and precision-recall curves, confusion matrices",
             "Grad-CAM figures and per-image predictions (CSV)",
             "Trained networks ready to reuse (.pt)",
+        ],
+    ),
+    Automator(
+        slug="object-detection",
+        name="Object Detection",
+        tagline="Locate and classify objects in 2D images and 3D volumes",
+        description=(
+            "Fine-tune, validate and explain ten pretrained detectors (Faster R-CNN to RT-DETRv2 and D-FINE) "
+            "on boxes drawn on medical or other images, including CT and MR volumes."
+        ),
+        icon="bounding-box",
+        status="available",
+        endpoint="detection",
+        inputs=[
+            "Train.zip and Test.zip: images or volumes with their boxes (up to 5 GB each)",
+            "Annotations in COCO JSON, YOLO, Pascal VOC, CSV (2D or 3D boxes) or masks",
+            "DICOM (also series), NIfTI, PNG (8/16-bit), JPEG, BMP, TIFF; images without boxes as negatives",
+        ],
+        steps=[
+            "Medical image preparation; 3D volumes processed slice by slice with their neighbours (2.5D)",
+            "Ten COCO-pretrained detectors: torchvision CNNs and detection transformers",
+            "Grouped, stratified K-fold cross-validation or a faster hold-out validation",
+            "Operating threshold tuned on the validation images, evaluation on the external test set",
+            "D-RISE saliency maps: the image regions each detection depends on",
+        ],
+        outputs=[
+            "mAP, AP50/75 (2D) or AP at 3D IoU, FROC (CPM), precision, recall and image-level sensitivity",
+            "Precision-recall and FROC curves, AP per class, test images with their detections",
+            "D-RISE explanations, predictions (CSV) and trained detectors ready to reuse",
         ],
     ),
     Automator(

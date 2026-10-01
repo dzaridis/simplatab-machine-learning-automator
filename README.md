@@ -9,6 +9,7 @@ explains their predictions and gives you the trained models. Your data never lea
 | **Tabular Classification** | `Train.csv`, `Test.csv` | 7 classical (Logistic Regression, SVM, Random Forest, SGD, MLP, Decision Tree, XGBoost) and 4 deep learning (TabPFNv2, TabICL, TabTransformer, TabR) | SHAP |
 | **Image Classification** | `Train.zip`, `Test.zip` of medical or other images (DICOM, NIfTI, PNG, JPEG, BMP, TIFF) | 10 pretrained networks: ResNet-50, EfficientNet-B0/V2-S, ConvNeXt(-V2)-Tiny, ViT-Small, DeiT III-Small, Swin-Tiny, MaxViT-Tiny, DINOv2-Small | Grad-CAM |
 | **Time Series Forecasting** | `Train.csv`, `Test.csv` in long format (e.g. repeated measurements of patients), with static, past and future covariates | 10 [neuralforecast](https://github.com/Nixtla/neuralforecast) networks: NHITS, NBEATSx, TiDE, KAN, DLinear, TFT, PatchTST, BiTCN, TCN, TimesNet | Integrated gradients |
+| **Object Detection** | `Train.zip`, `Test.zip` of 2D images or 3D volumes (DICOM, NIfTI, PNG, JPEG, …) with boxes in COCO, YOLO, Pascal VOC, CSV or mask format | 10 pretrained detectors: Faster R-CNN v2, RetinaNet v2, FCOS, Faster R-CNN MobileNetV3, SSDLite (torchvision); RT-DETR, RT-DETRv2, D-FINE-M, Deformable DETR, Conditional DETR (transformers) | D-RISE |
 
 Classification: binary and multiclass problems. Image segmentation is planned.
 
@@ -46,7 +47,7 @@ docker run --gpus all --shm-size=4g -p 7111:5000 dimzaridis/simplatab-machine-le
 1. **Upload** the training and test sets. They are checked in the browser (and on the server) before anything runs.
 2. **Configure**: choose the models and the validation settings; every setting is explained on the page.
 3. **Run**: follow each model live through the K-fold cross-validation and the external test.
-4. **Results**: compare metrics and curves, inspect SHAP, Grad-CAM or integrated gradients explanations, download everything.
+4. **Results**: compare metrics and curves, inspect SHAP, Grad-CAM, integrated gradients or D-RISE explanations, download everything.
 
 Each model is trained and validated with **stratified K-fold cross-validation** on the training set. For binary
 problems, the decision threshold that maximises the metric of your choice (balanced accuracy by default) is found
@@ -57,6 +58,11 @@ Forecasting uses **rolling-origin (prequential) validation** instead: the last K
 are forecast one after the other, each by a network trained on the points before it (with optional tuning of the
 lookback, learning rate and size on these windows). The final networks, trained on all the training series,
 forecast the last H points of every test series.
+
+Object detection offers **K-fold cross-validation** (folds grouped by patient folder, early stopping on a part of
+each training fold, final networks retrained on all the images for the median best number of epochs) or a faster
+**hold-out validation** (one split; the network trained on it is the final network). The score threshold that
+maximises the F1 score on the validation images is used on the test set.
 
 ## Your data
 
@@ -90,18 +96,38 @@ Optional steps: data bias assessment on a feature of your choice, correlation-ba
 - Example data: [`Examples/time-series-forecasting`](Examples/time-series-forecasting) (daily glucose of 40 patients),
   also downloadable from the upload page.
 
+**Object detection**: two zip files (up to 5 GB each) with the images and their boxes in one of these formats
+(detected automatically; boxes in pixels of the original image):
+
+| Format | Layout |
+|---|---|
+| COCO JSON | `annotations.json` (`images`, `annotations` with `bbox = [x, y, width, height]`, `categories`) and the images |
+| YOLO | `images/…` and `labels/…` (`class cx cy w h`, normalised), class names in `classes.txt` or `data.yaml` |
+| Pascal VOC | one `.xml` file next to each image |
+| CSV | `image, class, x_min, y_min, x_max, y_max` (+ `z_min, z_max`, first and last slice, for 3D boxes) |
+| Masks | `masks/<image name>` label images (PNG or NIfTI); each connected region of a label is a box; names in `classes.txt` |
+
+- **2D**: DICOM, NIfTI, PNG (8 or 16-bit), JPEG, BMP, TIFF. **3D**: NIfTI volumes, multi-frame DICOM or one folder of
+  DICOM slices per series, with CSV boxes or NIfTI masks. 3D volumes are detected slice by slice with the
+  neighbouring slices as context (2.5D), and the boxes of consecutive slices are merged into 3D boxes.
+- Images without boxes (or listed in the CSV without box) are negatives. Sub-folders (one per patient) keep a
+  patient's images in the same fold.
+- Example data: [`Examples/object-detection`](Examples/object-detection) (2D radiograph-like images with COCO boxes,
+  3D CT-like volumes with CSV boxes), also downloadable from the upload page.
+
 ## What you get
 
 Everything is written to the `Materials` folder, shown on the results page and downloadable as one zip:
 
 | Output | Files |
 |---|---|
-| Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline) | `<K>_fold_results.xlsx` (mean ± SD), `test_results.xlsx`, `Metrics_Plots/` (forecasting) |
-| Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/` |
-| Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images), `Explainability/` (forecasting) |
-| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images), `Models/<model>.zip` (forecasting) |
+| Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline; detection: mAP, AP at IoU 0.5/0.75 (3D: 0.1/0.25/0.5), recall, FROC, precision/recall/F1 and image-level sensitivity/specificity at the threshold) | `<K>_fold_results.xlsx` (mean ± SD) or `holdout_results.xlsx`, `test_results.xlsx`, `Metrics_Plots/` (forecasting) |
+| Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/`, `Detection_Curves/` (precision-recall, FROC, AP per class) |
+| Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps) |
+| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors), `Models/<model>.zip` (forecasting, transformers detectors) |
 | Forecasts vs. observed values | `Forecasts/test_forecasts.csv`, `Forecasts/future_forecasts.csv` (beyond the data, without future covariates), `Forecast_Plots/` |
 | Image predictions and classes | `Predictions/<network>_test_predictions.csv`, `classes.csv` |
+| Detections drawn on test images (true positives, false positives, missed boxes) | `Detections/` |
 
 Each run replaces the results of the previous one.
 
@@ -171,14 +197,44 @@ print(nf.predict(df=history))   # the next H points of every series
 With covariates, the code of the results page also encodes them as in training and passes the static features
 (`static_df`) and the covariates known in advance for the forecast period (`futr_df`).
 
+**Object detection**: torchvision detectors are TorchScript `.pt` files; transformers detectors are `.zip` folders
+for `from_pretrained` (transformers 4.57.6). Both carry `simplatab.json` (classes, image size, score threshold).
+```bash
+pip install torch torchvision numpy pillow
+```
+```python
+import json
+import numpy as np, torch
+import torchvision   # registers the detection operators of the network
+from PIL import Image
+
+meta = {"simplatab.json": ""}
+model = torch.jit.load("Materials/Models/Faster_R-CNN_R50-FPN_v2.pt", _extra_files=meta).eval()
+info = json.loads(meta["simplatab.json"])
+size = info["image_size"]
+
+image = Image.open("scan.png").convert("RGB")
+x = torch.from_numpy(np.asarray(image.resize((size, size), Image.BILINEAR), dtype=np.float32) / 255).permute(2, 0, 1)
+with torch.no_grad():
+    _, (out,) = model([x])
+keep = (out["labels"] > 0) & (out["scores"] >= info["threshold"])   # label 0 is the background
+boxes = out["boxes"][keep] * torch.tensor([image.width / size, image.height / size] * 2)
+print(boxes, [info["classes"][k - 1] for k in out["labels"][keep]])
+```
+The code of the results page also covers the transformers detectors, DICOM and NIfTI images and 3D volumes
+(slice-by-slice detection and merging into 3D boxes).
+
 ## Notes on the deep learning models
 
 - **Forecasting networks** are trained from scratch on your series (no pretrained weights). On CPU most take
   seconds to a minute per training; TimesNet is much slower without a GPU and is not selected by default.
 - **TabPFNv2 and TabICL** are pretrained foundation models (no training); TabPFNv2 is limited to 10,000 samples,
   500 features and 10 classes. **TabTransformer** and **TabR** are trained with early stopping.
-- Pretrained weights (TabPFNv2, TabICL and the 10 image networks) are included in the Docker images; from source
-  they are downloaded from the Hugging Face Hub on first use.
+- **Detectors** are pretrained on COCO and fine-tuned on your boxes, with images resized to a square (320 to
+  1024 px). A GPU is strongly recommended: on CPU, fine-tuning takes minutes per epoch for the larger networks;
+  Faster R-CNN MobileNetV3 and SSDLite are the fast choices. Hold-out validation trains each network once.
+- Pretrained weights (TabPFNv2, TabICL, the 10 image networks and the 10 detectors) are included in the Docker
+  images; from source they are downloaded from the Hugging Face Hub or PyTorch on first use.
 - A GPU is used automatically when available. A model that cannot run on a dataset is skipped and reported,
   and the others still complete.
 
@@ -194,9 +250,11 @@ version. For a new minor or major version, create a tag such as `1.2.0`; the nex
 python -m unittest discover tests
 ```
 Code layout: `app.py` (web app), `Helpers/` (tabular pipeline), `Helpers/image/` (image pipeline),
-`Helpers/forecasting/` (forecasting pipeline), `web/`
+`Helpers/forecasting/` (forecasting pipeline), `Helpers/detection/` (object detection pipeline), `web/`
 (automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning).
-`Examples/` holds the outputs of example runs on the Iris and breast cancer datasets and the example time series.
+`Examples/` holds the outputs of example runs on the Iris and breast cancer datasets, the example time series and
+the example detection data. Set `SIMPLATAB_PRETRAINED=0` to run the detection automator without downloading weights
+(randomly initialised networks, e.g. for tests).
 
 ## Authors
 
