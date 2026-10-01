@@ -1,6 +1,7 @@
-{# Code showing how to use the trained models outside Simplatab: installation, data loading,
-   preprocessing, model loading and inference. Rendered on the results page with the file of a
-   trained model and the Simplatab version that trained it (the models need the same code). #}
+{# Standalone code to use a trained model on new data: only pip packages, no Simplatab code.
+   Rendered on the results page for the best model, adapted to the run (identifier column,
+   image formats, CT window, volume reduction) described in Materials/run_info.json.
+   The code macros produce plain text, which code_block escapes once. #}
 
 {% macro code_block(id, language, code) %}
 <div class="code-block">
@@ -10,113 +11,148 @@
             <i class="bi bi-clipboard me-1" aria-hidden="true"></i><span>Copy</span>
         </button>
     </div>
-    <pre class="log-console mb-0" id="{{ id }}"><code>{{ code }}</code></pre>
+    <pre class="log-console mb-0" id="{{ id }}"><code>{{ code | string | forceescape }}</code></pre>
 </div>
 {% endmacro %}
 
-{% macro install_code(version) -%}
-{%- set ref = version if version[:1].isdigit() else 'main' -%}
-# Python 3.9, with the code of the Simplatab version that trained the models ({{ ref }})
-git clone --branch {{ ref }} https://github.com/dzaridis/simplatab-machine-learning-automator.git
-cd simplatab-machine-learning-automator
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt   # the exact library versions the models were trained with
-unzip ~/Downloads/pipeline_results.zip -d Materials   # the results, with the models in Materials/Models/
-{%- endmacro %}
+{% macro install_code(packages) -%}{% autoescape false -%}
+python -m venv venv && source venv/bin/activate   # Python 3.9 to 3.11; Windows: venv\Scripts\activate
+{% for line in packages %}pip install {{ line }}
+{% endfor %}unzip pipeline_results.zip -d Materials   # the downloaded results (models in Materials/Models/)
+{%- endautoescape %}{%- endmacro %}
 
-{% macro tabular_code(model, thresholds) -%}
+{% macro tabular_code(model, info) -%}{% autoescape false -%}
 import json
 import pickle
 
 import pandas as pd
 
-# 1. Data: new samples with the same columns as Train.csv (Target is not needed)
-data = pd.read_csv("new_samples.csv")
-
-# 2. Preprocessing, as before training: identifier as index, rows with missing values removed
-for id_column in ("ID", "patient_id"):
-    if id_column in data.columns:
-        data = data.set_index(id_column)
-        break
-data = data.dropna().drop(columns=["Target"], errors="ignore")
-
-# 3. Model: the whole pipeline (feature selection, scaling/encoding, classifier)
 with open("Materials/Models/{{ model }}_pipeline.pkl", "rb") as f:
-    model = pickle.load(f)
-{% if thresholds -%}
-with open("Materials/Models/thresholds.json") as f:
-    threshold = json.load(f)["{{ model }}"]   # tuned on the K-fold validation sets; None if multiclass
+    model = pickle.load(f)  # scikit-learn pipeline: feature selection, preprocessing, classifier
+{% if (info.classes or [0, 1]) | length == 2 -%}
+threshold = json.load(open("Materials/Models/thresholds.json"))["{{ model }}"]  # tuned in cross-validation
+{% endif %}
+data = pd.read_csv("new_samples.csv"{% if info.id_column %}, index_col="{{ info.id_column }}"{% endif %}).dropna()  # columns of Train.csv, Target not needed
+p = model.predict_proba(data)
+{% if (info.classes or [0, 1]) | length == 2 -%}
+print(pd.DataFrame({"prediction": (p[:, 1] > threshold).astype(int), "probability_1": p[:, 1]}, index=data.index))
 {%- else -%}
-threshold = 0.5   # binary problems: probability above which class 1 is predicted
+print(pd.DataFrame(p, index=data.index).add_prefix("probability_").assign(prediction=p.argmax(1)))
 {%- endif %}
+{%- endautoescape %}{%- endmacro %}
 
-# 4. Inference
-probabilities = model.predict_proba(data)
-if probabilities.shape[1] == 2 and threshold is not None:
-    predictions = (probabilities[:, 1] > threshold).astype(int)
-else:
-    predictions = probabilities.argmax(axis=1)
-results = pd.DataFrame(probabilities, index=data.index).add_prefix("probability_")
-results.insert(0, "prediction", predictions)
-print(results)
-{%- endmacro %}
-
-{% macro image_code(model_file) -%}
+{% macro image_code(model_file, info) -%}{% autoescape false -%}
+{%- set formats = info.formats or {} -%}
+{%- set ct = info.ct_window -%}
+{%- set mip = info.volume == 'mip' -%}
 import glob
+import json
 
+import numpy as np
 import torch
+from PIL import Image
+{% if formats.dicom %}import pydicom
+from pydicom.pixel_data_handlers.util import apply_modality_lut, convert_color_space
+{% endif %}{% if formats.nifti %}import nibabel as nib
+{% endif %}
+meta = {"simplatab.json": ""}
+model = torch.jit.load("Materials/Models/{{ model_file }}", _extra_files=meta)  # normalisation, network, softmax
+info = json.loads(meta["simplatab.json"])  # classes, decision threshold, preprocessing
+{% if ct and (formats.dicom or formats.nifti) %}CT_WINDOW = ({{ ct[0] }}, {{ ct[1] }})  # {{ info.window | replace('_', ' ') }} window: center, width in Hounsfield units
+{% endif %}
+{% if formats.dicom or formats.nifti or formats.high_bit_raster %}
+def to_8bit(a, window=None, invert=False):  # window (center, width), otherwise the 0.5-99.5 percentiles
+    lo, hi = np.percentile(a, [0.5, 99.5]) if window is None else (window[0] - window[1] / 2, window[0] + window[1] / 2)
+    a = np.clip((a - lo) / max(hi - lo, 1e-6), 0, 1)
+    return ((1 - a if invert else a) * 255 + 0.5).astype(np.uint8)
 
-from Helpers.image import io
-from Helpers.image.inference import load_model
-from Helpers.image.models import normalization
-from Helpers.image.training import build_transform
+{% endif %}{% if formats.dicom %}
+def load_dicom(path):
+    ds = pydicom.dcmread(path, force=True)
+    a, pi = ds.pixel_array, str(ds.get("PhotometricInterpretation", "MONOCHROME2"))
+    frames = int(ds.get("NumberOfFrames", 1) or 1)
+    if ds.get("SamplesPerPixel", 1) == 3:  # colour
+        a = convert_color_space(a, pi, "RGB") if pi.startswith("YBR") else a
+        return {% if mip %}a.max(0){% else %}a[len(a) // 2]{% endif %} if frames > 1 else a
+    a = apply_modality_lut(a, ds).astype(np.float32)  # e.g. Hounsfield units for CT
+    if frames > 1:
+        a = {% if mip %}a.max(0)  # maximum intensity projection{% else %}a[len(a) // 2]  # middle frame{% endif %}
+{% if info.window == 'auto' %}    window = (float(np.ravel(ds.WindowCenter)[0]), float(np.ravel(ds.WindowWidth)[0])) if "WindowWidth" in ds else None
+{% elif ct %}    window = CT_WINDOW if ds.get("Modality") == "CT" else None
+{% else %}    window = None
+{% endif %}    return to_8bit(a, window, invert=pi == "MONOCHROME1")
 
-# 1. Model: network, classes, decision threshold and the preprocessing used in training
-model, info = load_model("Materials/Models/{{ model_file }}")
-prep = info["preprocessing"]
-transform = build_transform(*normalization(model.backbone))   # resize to 224, normalise
+{% endif %}{% if formats.nifti %}
+def load_nifti(path):
+    a = np.squeeze(np.asanyarray(nib.as_closest_canonical(nib.load(path)).dataobj).astype(np.float32))
+    a = a[..., 0] if a.ndim == 4 else a  # 4D: first volume
+    a = {% if mip %}a.max(2) if a.ndim == 3 else a  # maximum intensity projection of the axial slices{% else %}a[:, :, a.shape[2] // 2] if a.ndim == 3 else a  # middle axial slice{% endif %}
+    return to_8bit(np.rot90(a){% if ct %}, CT_WINDOW{% endif %})
 
-# 2. Data: DICOM, NIfTI, PNG, JPEG, BMP or TIFF files
+{% endif %}
+def load(path):  # 8-bit image, as the training images
+{% if formats.nifti %}    if path.endswith((".nii", ".nii.gz")):
+        return load_nifti(path)
+{% endif %}{% if formats.dicom %}    if not path.lower().endswith((".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")):
+        return load_dicom(path)  # .dcm or no extension
+{% endif %}{% if formats.high_bit_raster %}    image = Image.open(path)
+    if image.mode in ("I", "F") or image.mode.startswith("I;16"):  # 16-bit
+        return to_8bit(np.array(image, dtype=np.float32))
+    return np.array(image.convert("RGB"))
+{% else %}    return np.array(Image.open(path).convert("RGB"))
+{% endif %}
+
+def prepare(image):  # padded to a square, resized as in training: (1, 3, 224, 224) tensor in [0, 1]
+    image = Image.fromarray(image)
+    side = max(image.size)
+    square = Image.new(image.mode, (side, side))
+    square.paste(image, ((side - image.width) // 2, (side - image.height) // 2))
+    square = square.resize((256, 256), Image.BILINEAR).convert("RGB").resize((224, 224), Image.BILINEAR)
+    return torch.from_numpy(np.asarray(square, dtype=np.float32) / 255).permute(2, 0, 1)[None]
+
+
 for path in sorted(glob.glob("new_images/*")):
-    # 3. Preprocessing, as for the training images: 8-bit conversion (CT window, volume slice),
-    #    square padding, resizing
-    image = io.load_image(path, window=prep["window"], volume=prep["volume"])
-    image = io.letterbox(image, prep["cache_size"]).convert("RGB")
-    x = transform(image).unsqueeze(0)
-
-    # 4. Inference
     with torch.no_grad():
-        probabilities = torch.softmax(model(x), dim=1)[0].numpy()
-    if len(info["classes"]) == 2 and info["threshold"] is not None:
-        predicted = int(probabilities[1] > info["threshold"])
-    else:
-        predicted = int(probabilities.argmax())
-    print(path, info["classes"][predicted], {c: round(float(p), 3) for c, p in zip(info["classes"], probabilities)})
-{%- endmacro %}
+        p = model(prepare(load(path)))[0].numpy()  # class probabilities
+    k = int(p[1] > info["threshold"]) if info["threshold"] is not None else int(p.argmax())
+    print(path, info["classes"][k], p.round(3).tolist())
+{%- endautoescape %}{%- endmacro %}
 
-{% macro usage_card(is_image, models, best, version, thresholds) %}
+{% macro image_packages(info) -%}{% autoescape false -%}
+{%- set formats = info.formats or {} -%}
+{%- set extra = [] -%}
+{%- if formats.dicom %}{% set _ = extra.append('pydicom==2.4.4 pylibjpeg==1.4.0 pylibjpeg-libjpeg==1.3.4 pylibjpeg-openjpeg==1.3.2 "setuptools<81"') %}{% endif -%}
+{%- if formats.nifti %}{% set _ = extra.append('nibabel') %}{% endif -%}
+{{ install_code(['"torch>=2.8" --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build for a GPU',
+                 (['numpy pillow'] + extra) | join(' ')]) }}
+{%- endautoescape %}{%- endmacro %}
+
+{% macro usage_card(is_image, models, best, info) %}
 {% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
 <div class="card mb-4" id="use-models">
     <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Use a trained model on new data</div>
     <div class="p-3">
         <p class="small-muted mt-0">
-            {% if is_image %}Each <code>.pt</code> file holds a network trained on all of Train.zip, with its classes, decision threshold and image preprocessing.
-            {% else %}Each <code>.pkl</code> file holds the full pipeline trained on all of Train.csv: feature selection, preprocessing and classifier.{% endif %}
-            Loading it needs the Simplatab code and library versions that trained it, installed below. The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best model on the test set{% endif %}; replace the file name for another model.
+            {% if is_image %}Each <code>.pt</code> file is a standalone TorchScript model trained on all of Train.zip, with its classes, decision threshold and preprocessing; the code below prepares new images exactly as the training images{% if (info.formats or {}).dicom or (info.formats or {}).nifti %} (DICOM and NIfTI included){% endif %}.
+            {% else %}Each <code>.pkl</code> file is a standalone scikit-learn pipeline trained on all of Train.csv: feature selection, preprocessing and classifier.{% endif %}
+            It runs without Simplatab. The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best model on the test set{% endif %}; replace the file name for another model.
         </p>
         <h3 class="h6 fw-bold">1. Install</h3>
-        {{ code_block("code-install", "Shell", install_code(version)) }}
+        {% if is_image %}
+        {{ code_block("code-install", "Shell", image_packages(info)) }}
+        {% else %}
+        {{ code_block("code-install", "Shell", install_code([chosen.requirements | join(' ')])) }}
+        {% endif %}
         <h3 class="h6 fw-bold mt-3">2. Predict <span class="small-muted fw-normal">(save as <code>predict.py</code> and run <code>python predict.py</code>)</span></h3>
         {% if is_image %}
-        {{ code_block("code-predict", "Python", image_code(chosen.path.split('/')[-1])) }}
+        {{ code_block("code-predict", "Python", image_code(chosen.path.split('/')[-1], info)) }}
         {% else %}
-        {{ code_block("code-predict", "Python", tabular_code(chosen.name, thresholds)) }}
+        {{ code_block("code-predict", "Python", tabular_code(chosen.name, info)) }}
         {% endif %}
-        <p class="small-muted mt-3 mb-0">Run it from the <code>simplatab-machine-learning-automator</code> folder, which makes the <code>Helpers</code> package importable
-            ({% if is_image %}it contains the image preprocessing and the network definitions{% else %}deep learning models such as TabPFNv2 need it to load{% endif %}).
-            Without installing anything, the same script runs in the Docker image:
-            <code>docker run --rm -v "$PWD:/work" -w /work -e PYTHONPATH=/app dimzaridis/simplatab-machine-learning-automator:{{ version if version[:1].isdigit() else 'latest' }} python predict.py</code>.</p>
+        <p class="small-muted mt-3 mb-0">
+            {% if is_image %}Put the new images in a <code>new_images</code> folder (the same kinds of files as for training).
+            {% else %}<code>new_samples.csv</code> holds the new samples, with the columns of Train.csv; rows with missing values are skipped, as in training.{% endif %}
+            The library versions above are the ones that trained the model.</p>
     </div>
 </div>
 {% endmacro %}

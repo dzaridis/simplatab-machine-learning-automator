@@ -25,6 +25,7 @@ from Helpers import MetricsReport, behave_metrics
 from . import dataset
 from .explain import save_gradcam_figures
 from .inference import export_model
+from .io import CT_WINDOWS
 from .models import BY_KEY, ImageClassifier
 from .training import (describe_device, extract_features, fine_tune, fit_linear_head, linear_head_weights,
                        predict_proba)
@@ -83,10 +84,13 @@ def _prepare(input_folder, params, log):
         classes = [c for c in classes if c != positive] + [positive]
     index = {c: i for i, c in enumerate(classes)}
 
-    splits = {}
+    splits, formats = {}, {"dicom": False, "nifti": False, "high_bit_raster": False}
     for split in ("train", "test"):
         samples, _ = dataset.scan_split(os.path.join(input_folder, split))
         samples = [s for s in samples if s["class"] in index]
+        formats["dicom"] |= any(s["kind"] == "dicom" for s in samples)
+        formats["nifti"] |= any(s["kind"] == "nifti" for s in samples)
+        formats["high_bit_raster"] |= any(_high_bit_raster(s["path"]) for s in samples if s["kind"] == "raster")
         ready, failed = dataset.preprocess(samples, os.path.join(input_folder, "cache", split),
                                            params["window"], params["volume"], log=log)
         for item in failed:
@@ -99,7 +103,17 @@ def _prepare(input_folder, params, log):
             "failed": len(failed),
         }
         log(f"{split.capitalize()}: {len(ready)} images ready, {len(failed)} skipped")
-    return classes, splits
+    return classes, splits, formats
+
+
+def _high_bit_raster(path):
+    """16-bit or float PNG/TIFF (reads the header only)."""
+    from PIL import Image
+    try:
+        with Image.open(path) as image:
+            return image.mode in ("I;16", "I;16B", "I;16L", "I;16N", "I", "F")
+    except Exception:
+        return False
 
 
 def run_image_pipeline(input_folder, params):
@@ -126,7 +140,7 @@ def _run(input_folder, params):
 
     _banner("Preparing images")
     print(f"Device: {describe_device()} · mode: {MODES[mode]}")
-    classes, splits = _prepare(input_folder, params, print)
+    classes, splits, formats = _prepare(input_folder, params, print)
     train, test = splits["train"], splits["test"]
     counts = np.bincount(train["labels"], minlength=len(classes))
     if (counts < k).any():
@@ -188,7 +202,7 @@ def _run(input_folder, params):
 
     # ---- Final models and external test -----------------------------------------------
     _banner("Evaluating algorithms on the test set")
-    preprocessing = {"window": params["window"], "volume": params["volume"]}
+    preprocessing = {"window": params["window"], "volume": params["volume"], "formats": formats}
     scores_test, probabilities_test = {}, {}
     for directory in ("Models", "Predictions", "GradCAM"):
         os.makedirs(os.path.join(MATERIALS, directory), exist_ok=True)
@@ -252,7 +266,9 @@ def _run(input_folder, params):
 
     with open(os.path.join(MATERIALS, "run_info.json"), "w") as f:
         json.dump({"automator": "image-classification", "mode": mode, "classes": classes,
-                   "k_folds": k, "metric": metric, "device": describe_device(),
+                   "k_folds": k, "metric": metric, "device": describe_device(), "formats": formats,
+                   "window": params["window"], "volume": params["volume"],
+                   "ct_window": list(CT_WINDOWS[params["window"]]) if params["window"] in CT_WINDOWS else None,
                    "skipped_images": train["failed"] + test["failed"]}, f, indent=2)
     print("Pipeline completed successfully.")
     return "Pipeline completed successfully"

@@ -265,7 +265,7 @@
                 </ul>
             </div>
             {% endif %}
-            {% if results.models %}{{ usage_card(is_image, results.models, results.best.model if results.best else None, app_version, results.thresholds) }}{% endif %}
+            {% if results.models %}{{ usage_card(is_image, results.models, results.best.model if results.best else None, results.info) }}{% endif %}
             {% if results.predictions %}
             <div class="card mb-4">
                 <div class="card-header py-3">Test predictions</div>

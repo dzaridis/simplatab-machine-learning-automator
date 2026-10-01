@@ -21,6 +21,7 @@ from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from Helpers.pipelines_main import train_k_fold, external_test, read_yaml
 from Helpers.data_checks import DataChecker
 from Helpers import DBDM
+from Helpers.standalone import requirements as model_requirements
 from Helpers.image import dataset as image_dataset
 from Helpers.image.io import CT_WINDOWS
 from Helpers.image.models import BACKBONES, BY_KEY as BACKBONES_BY_KEY
@@ -454,7 +455,7 @@ def collect_results(root):
                "automator": get_automator("tabular")}
     if not os.path.isdir(root):
         return results
-    # Written by the image automator (the tabular automator writes none)
+    # Classes and settings of the run (older tabular runs have none)
     info_path = os.path.join(root, "run_info.json")
     if os.path.exists(info_path):
         with open(info_path) as f:
@@ -518,9 +519,9 @@ def collect_results(root):
                 for p in plots]
 
     for path in sorted(glob.glob(os.path.join(root, "Models", "*.pkl"))):
-        results["models"].append({"path": _relative(path, root),
-                                  "name": os.path.basename(path)[:-len("_pipeline.pkl")],
-                                  "size": os.path.getsize(path)})
+        name = os.path.basename(path)[:-len("_pipeline.pkl")]
+        results["models"].append({"path": _relative(path, root), "name": name, "size": os.path.getsize(path),
+                                  "requirements": model_requirements(name)})
     names = {"".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in b.name): b.name for b in BACKBONES}
     for path in sorted(glob.glob(os.path.join(root, "Models", "*.pt"))):
         stem = os.path.basename(path)[:-3]
@@ -538,7 +539,6 @@ def collect_results(root):
         stem = os.path.basename(path)[:-len("_test_predictions.csv")]
         results["predictions"].append({"path": _relative(path, root), "name": names.get(stem, stem),
                                        "size": os.path.getsize(path)})
-    results["thresholds"] = os.path.exists(os.path.join(root, "Models", "thresholds.json"))
     classes_path = os.path.join(root, "classes.csv")
     if os.path.exists(classes_path):
         results["classes"] = pd.read_csv(classes_path).to_dict("records")
@@ -652,6 +652,11 @@ def run_pipeline(input_folder, output_folder, params):
 
         X_train = train.drop('Target', axis=1)
         y_train = train['Target']
+        # For the code shown on the results page (using the saved models on new data)
+        columns = pd.read_csv(os.path.join(input_folder, "Train.csv"), nrows=0).columns
+        with open(os.path.join("Materials", "run_info.json"), "w") as f:
+            json.dump({"automator": "tabular", "classes": sorted(int(c) for c in y_train.unique()),
+                       "id_column": next((c for c in ("ID", "patient_id") if c in columns), None)}, f, indent=2)
         X_test = test.drop('Target', axis=1)
         y_test = test['Target']
         print("------------- \n", "Data Loaded successfully \n", "-------------")

@@ -18,6 +18,7 @@ from Helpers.dl_classifiers import (TabPFNv2Classifier, TabICLClassifier, TabTra
 from Helpers import behave_metrics
 from Helpers import shap_module
 from Helpers import MetricsReport
+from Helpers import standalone
 import pickle
 import yaml
 
@@ -485,9 +486,9 @@ def external_test(X_train, y_train, X_test, y_test, params_dict, thresholds):
 
     try:
         for name, pipeline in pipeline_dict_inf.items():
+            # A plain scikit-learn pipeline that loads without the Simplatab code (see Helpers/standalone.py)
             filename = os.path.join(save_path_for_models, f"{name}_pipeline.pkl")
-            with open(filename, "wb") as file:
-                pickle.dump(pipeline, file)
+            standalone.save_pipeline(pipeline, X_train, filename)
             print(f"Saved {name} pipeline to {filename}")
         # Decision thresholds of binary problems: class 1 is predicted when its probability exceeds
         # the threshold (the mean of the thresholds optimised on the K-fold validation sets)
