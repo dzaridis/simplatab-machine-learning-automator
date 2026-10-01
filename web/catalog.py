@@ -1,5 +1,6 @@
 """What the web interface offers: the automators and the models of the tabular automator
-(the networks of the image automator are in Helpers/image/models.py).
+(the networks of the image automator are in Helpers/image/models.py, the forecasters in
+Helpers/forecasting/models.py).
 
 Adding an automator means adding an entry to ``AUTOMATORS``: the landing page, the
 navigation and the automator pages are generated from it. An automator with
@@ -117,30 +118,32 @@ AUTOMATORS = [
         ],
     ),
     Automator(
-        slug="longitudinal-forecasting",
-        name="Longitudinal Forecasting",
-        tagline="Forecasting from repeated measurements over time",
+        slug="time-series-forecasting",
+        name="Time Series Forecasting",
+        tagline="Forecast the next values of time series, such as repeated measurements of patients",
         description=(
-            "Predict future values or outcomes from longitudinal data, such as repeated "
-            "visits of the same subjects, with subject-aware validation."
+            "Train, validate and explain ten state-of-the-art deep learning forecasters (neuralforecast) "
+            "on many series at once, with static, past and future covariates and rolling-origin validation."
         ),
         icon="graph-up-arrow",
-        status="coming_soon",
+        status="available",
+        endpoint="forecasting",
         inputs=[
-            "A long-format CSV: one row per subject and time point",
-            "A subject identifier, a time column, features and the target",
-            "Irregular time points and missing visits supported",
+            "Train.csv and Test.csv in long format: one row per series and time point (ID, Time, Target)",
+            "Optional covariates: static (e.g. sex), past (e.g. another measurement) or known in advance (e.g. a dose)",
+            "Test series continue training series (later period) or are new series (e.g. new patients)",
         ],
         steps=[
-            "Temporal feature engineering (lags, rolling statistics, time since baseline)",
-            "Statistical, gradient boosting and deep learning forecasters",
-            "Subject-level cross-validation, so no subject leaks between folds",
-            "Evaluation on a held-out time window or held-out subjects",
+            "Regular time steps (missing points filled), categorical covariates encoded",
+            "Ten networks: NHITS, NBEATSx, TiDE, KAN, DLinear, TFT, PatchTST, BiTCN, TCN, TimesNet",
+            "Rolling-origin (prequential) validation, with optional hyperparameter tuning",
+            "Forecasts of the last H points of every test series, compared with a seasonal naive baseline",
+            "Integrated gradients: the inputs and time steps behind the forecasts",
         ],
         outputs=[
-            "Forecast error metrics (MAE, RMSE, MAPE) per horizon",
-            "Observed versus forecast trajectories per subject",
-            "Feature importance over time and exported models",
+            "Validation and test errors (MAE, RMSE, sMAPE, MASE) and the error by horizon step",
+            "Forecasts vs. observed values (figures and CSV), forecasts beyond the data",
+            "Integrated gradients figures and trained models ready to reuse",
         ],
     ),
 ]

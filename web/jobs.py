@@ -25,6 +25,13 @@ IMAGE_PHASES = [
     ("done", "Report"),
 ]
 
+FORECAST_PHASES = [
+    ("data", "Preparing data"),
+    ("kfold", "Rolling-origin validation"),
+    ("test", "External test"),
+    ("done", "Report"),
+]
+
 _STARTING = re.compile(r"^(.+?) is starting$")
 _COMPLETED = re.compile(r"^(.+?) is completed successfully$")
 _SKIPPED = re.compile(r"^(.+?) failed and was skipped: (.*)$")
