@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .paths import resolve_data_path
 
-CSV_AUTOMATORS = ("tabular", "time-series-forecasting", "clustering")
+CSV_AUTOMATORS = ("tabular", "time-series-forecasting", "clustering", "survival-analysis")
 OPTIONAL_TEST = ("clustering",)
 
 
@@ -160,9 +160,15 @@ def _clustering(input_dir):
     return summary, list(summary.get("errors", [])), list(summary.get("warnings", []))
 
 
+def _survival(input_dir):
+    from Helpers.survival import data as survival_data
+    summary = survival_data.summarize(str(input_dir / "Train.csv"), str(input_dir / "Test.csv"))
+    return summary, list(summary.get("errors", [])), list(summary.get("warnings", []))
+
+
 CHECKS = {"tabular": _tabular, "image-classification": _image, "object-detection": _detection,
           "image-segmentation": _segmentation, "time-series-forecasting": _forecasting,
-          "clustering": _clustering}
+          "clustering": _clustering, "survival-analysis": _survival}
 
 
 def check(automator, input_dir):

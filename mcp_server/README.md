@@ -12,12 +12,13 @@ hold-out validation, external test, explanations, exported models and validation
 | `object-detection` | Boxes in 2D images or 3D volumes | zip or folder with COCO / YOLO / VOC / CSV / masks |
 | `image-segmentation` | 2D or 3D masks, incl. the official nnU-Net v2 | zip or folder: `images/` + `masks/`, or nnU-Net raw |
 | `time-series-forecasting` | Forecasting many series with covariates | `Train.csv`, `Test.csv` in long format |
+| `survival-analysis` | Time-to-event models with censoring (Cox to DeepHit) | `Train.csv`, `Test.csv` with `Time`, `Event` |
 | `clustering` | Clusters of rows, unsupervised or evaluated against labels | `Train.csv`, optional `Test.csv` |
 
 An agent can also let the server **choose the automator from the data** (`inspect_data`, or `automator="auto"`): a CSV
 with `ID`, `Time` and `Target` is a forecasting problem, a CSV with a `Target` of classes is tabular, class folders
 of images are image classification, `images/` + `masks/` is segmentation, COCO/YOLO/VOC/CSV boxes are detection, a
-CSV without a `Target` (or with text classes) is clustering. For clustering, `test` is optional, and a `Target` column
+CSV with `Time` and `Event` is survival analysis, a CSV without a `Target` (or with text classes) is clustering. For clustering, `test` is optional, and a `Target` column
 turns on the supervised evaluation (ARI, AMI, purity...) without being used to find the clusters.
 
 ## Run it on your computer (Docker)

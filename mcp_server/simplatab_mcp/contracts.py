@@ -52,6 +52,16 @@ AUTOMATORS = {
         "validation": "Rolling-origin (prequential) validation",
         "explanations": "Integrated gradients",
     },
+    "survival-analysis": {
+        "name": "Survival Analysis",
+        "task": "Time-to-event prediction with censored follow-up (e.g. overall survival, time to relapse).",
+        "train": "Train.csv: a CSV file with Time, Event and the features",
+        "test": "Test.csv: a CSV file with the same columns",
+        "model_summary": "8 models: Cox PH, Weibull AFT, log-normal AFT, XGBoost Cox, XGBoost AFT, DeepSurv, DeepHit, "
+                         "Logistic-Hazard (+ a Kaplan-Meier reference)",
+        "validation": "K-fold cross-validation stratified on Event, then the external test set",
+        "explanations": "Risk groups (Kaplan-Meier, log-rank), calibration, permutation importance, Cox/AFT coefficients",
+    },
     "clustering": {
         "name": "Clustering",
         "task": "Finding groups of similar rows in a table, unsupervised; with a Target column of classes the clusters "
@@ -176,6 +186,19 @@ DATA_RULES = {
         ],
         "example": "ID,Time,Target,Dose,Sex\nP01,2024-01-01,5.4,10,F\nP01,2024-01-02,5.9,10,F\n",
     },
+    "survival-analysis": {
+        "layout": "Two CSV files (comma separated, header row), one row per patient.",
+        "columns": {
+            "Time": "Required. Follow-up time: of the event, or of the last contact when censored. Positive, any unit "
+                    "(the same in both files; horizons are in this unit).",
+            "Event": "Required. 1 if the event happened at Time, 0 if censored.",
+            "ID or patient_id": "Optional identifier (never a feature).",
+            "other columns": "Features: numeric or categorical (one-hot encoded); missing values imputed inside each fold.",
+        },
+        "rules": ["Both files have the same feature columns.", "Train.csv needs at least 10 events.",
+                  "Horizons must lie within the follow-up (0 < h < longest Time)."],
+        "example": "ID,Time,Event,Age,Stage,CEA\nCRC0001,31.2,1,73,III,12.8\nCRC0002,58.0,0,58,II,3.1\n",
+    },
     "clustering": {
         "layout": "One CSV file (Train.csv) with one row per sample, and optionally a Test.csv with the same feature "
                   "columns. Give test=null (or leave it out) when there is no test set.",
@@ -218,6 +241,10 @@ OUTPUTS = {
                            "Segmentation_Plots/, Overlays/<network>/ (with the uncertainty map)"],
     "time-series-forecasting": ["Models/<model>.zip (neuralforecast)", "Forecasts/test_forecasts.csv, future_forecasts.csv",
                                 "Forecast_Plots/, Metrics_Plots/, Explainability/ (integrated gradients)"],
+    "survival-analysis": ["Models/<model>.pkl (cloudpickle: predict_risk(df), predict_survival(df, times))",
+                          "Predictions/test_predictions.csv (risk and survival at the horizons per test patient)",
+                          "Survival_Plots/ (risk groups, patient curves), Metrics_Plots/ (AUC and Brier over time, "
+                          "calibration), Explainability/ (permutation importance, Cox/AFT coefficients)"],
     "clustering": ["train_results.xlsx: metrics of the clusters of Train.csv (test_results.xlsx with a Test.csv)",
                    "Models/<algorithm>.pkl (cloudpickle: model.predict(dataframe) -> cluster; no Simplatab needed)",
                    "Clusters/train_clusters.csv, test_clusters.csv (cluster of every sample per algorithm), "
@@ -233,6 +260,8 @@ METRICS = {
                          "image-level sensitivity/specificity"],
     "image-segmentation": ["Dice", "IoU", "HD95 (lower is better)", "ASSD (lower is better)", "Sensitivity", "Precision"],
     "time-series-forecasting": ["MAE", "RMSE", "sMAPE", "MASE (all lower is better; vs. a seasonal naive baseline)"],
+    "survival-analysis": ["C-index", "Uno C-index", "IBS (lower is better)", "AUC@<horizon>",
+                          "Brier@<horizon> (lower is better)"],
     "clustering": ["Silhouette", "Calinski-Harabasz", "Davies-Bouldin (lower is better)", "with a Target: ARI, AMI, NMI, "
                    "V-measure, Homogeneity, Completeness, FMI, Purity, Accuracy (Hungarian matching)",
                    "Stability (ARI) on the validation folds", "Clusters, Noise %"],
@@ -268,6 +297,10 @@ def models(automator, dim=None):
     if automator == "time-series-forecasting":
         from Helpers.forecasting.models import MODELS
         return [{"key": m.key, "name": m.key, "description": m.description, "default": m.default, "slow": m.slow}
+                for m in MODELS]
+    if automator == "survival-analysis":
+        from Helpers.survival.models import MODELS
+        return [{"key": m.key, "name": m.name, "description": m.description, "default": m.default, "family": m.family}
                 for m in MODELS]
     if automator == "clustering":
         from Helpers.clustering.models import ALGORITHMS
@@ -383,6 +416,20 @@ def config_schema(automator, dim=None):
             "max_steps": _field("int", 500, "Training steps.", min=50, max=10000),
             "season": _field("int", "from the data", "Seasonal period (seasonal naive baseline, MASE).", min=1, max=1000),
             "future_columns": _field("list[str]", [], "Varying covariates known in advance (the others are past covariates)."),
+        }
+    if automator == "survival-analysis":
+        return {
+            "models": _field("list[str]", "from the registry defaults", "Model keys (see models), or [\"all\"]."),
+            "k_folds": _field("int", 5, "Folds stratified on Event.", min=2, max="from the data (max_folds)"),
+            "horizons": _field("list[float]", "quartiles of the event times", "1 to 5 times for AUC@t, Brier@t and "
+                               "the predicted survival probabilities.", min=0, max="the longest follow-up"),
+            "selection_metric": _field("str", "C-index", "Metric choosing the best model (validation mean).",
+                                       choices=["C-index", "Uno C-index", "IBS"]),
+            "ignore_columns": _field("list[str]", [], "Feature columns left out."),
+            "penalty": _field("float", 0.01, "Ridge penalty of Cox and AFT models.", min=0, max=10),
+            "epochs": _field("int", 200, "Maximum epochs of the networks (early stopping).", min=20, max=1000),
+            "explain": _field("bool", True, "Permutation importance on Test.csv."),
+            "seed": _field("int", 42, "Random seed.", min=0, max=2 ** 31 - 1),
         }
     if automator == "clustering":
         return {

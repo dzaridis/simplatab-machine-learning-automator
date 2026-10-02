@@ -17,6 +17,7 @@ QUICK = {
                            "nnunet_iterations": 10},
     "time-series-forecasting": {"models": ["NHITS", "DLinear"], "horizon": 14, "k_folds": 2, "max_steps": 100,
                                 "season": 7},
+    "survival-analysis": {"models": ["coxph", "xgb_cox", "deepsurv"], "k_folds": 3, "epochs": 60},
     "clustering": {"models": ["kmeans", "gmm", "agglomerative", "hdbscan", "idec", "som"], "k_folds": 3,
                    "pretrain_epochs": 30, "epochs": 30},
 }
@@ -94,6 +95,11 @@ def example(automator, variant, workspace):
         train, test, description = _copy("time-series-forecasting", ["Train.csv", "Test.csv"], dest,
                                          "Daily glucose of 40 patients (30 continued, 10 new in Test.csv): insulin and weekend known in advance, "
                                          "steps observed up to now, age/sex/BMI static.")
+    elif automator == "survival-analysis":
+        train, test, description = _copy("survival", ["Train.csv", "Test.csv"], dest,
+                                         "Overall survival (months) after colorectal cancer surgery: 800 training and 300 "
+                                         "test patients, age, sex, stage, grade, tumour size, CEA, ECOG, nodes, "
+                                         "chemotherapy, BMI.")
     elif automator == "clustering":
         train, test, description = _copy("clustering", ["Train.csv", "Test.csv"], dest,
                                          "Adults with newly diagnosed diabetes (600 train, 200 test): age, sex, BMI, HbA1c, "

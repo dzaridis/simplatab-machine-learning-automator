@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Upload data · Survival Analysis{% endblock %}
+
+{% block content %}
+{{ page_header("Upload your cohort", "Add a training set and a test set, one row per patient. They are checked in your browser before anything is uploaded.", 1, automator) }}
+
+<div class="container pb-5">
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <form id="upload-form" action="{{ url_for('survival_upload') }}" method="post" enctype="multipart/form-data" novalidate>
+                <div class="row g-3">
+                    {% for kind, title, help, optional in [
+                        ("train", "Train.csv", "Used for cross-validation and to train the final models.", False),
+                        ("test", "Test.csv", "Held out: evaluated once, at the end.", False),
+                    ] %}
+                    <div class="col-md-6">
+                        <div class="dropzone" data-dropzone="{{ kind }}">
+                            <input type="file" id="{{ kind }}_file" name="{{ kind }}_file" accept=".csv,text/csv"
+                                   aria-describedby="{{ kind }}-help" {% if not optional %}required{% endif %}>
+                            <div class="dz-empty">
+                                <div class="dz-icon mb-2"><i class="bi bi-cloud-arrow-up" aria-hidden="true"></i></div>
+                                <label for="{{ kind }}_file" class="fw-semibold d-block">{{ title }}{% if optional %} <span class="badge rounded-pill text-bg-light border fw-medium">optional</span>{% endif %}</label>
+                                <div class="small-muted">Drag and drop, or <span class="text-primary fw-semibold">browse</span></div>
+                                <div class="small-muted mt-2" id="{{ kind }}-help">{{ help }}</div>
+                            </div>
+                            <div class="dz-file d-none">
+                                <div class="file-chip">
+                                    <span class="icon-badge"><i class="bi bi-filetype-csv" aria-hidden="true"></i></span>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="small-muted">{{ title }}</div>
+                                        <div class="name" data-field="name"></div>
+                                        <div class="small-muted tabular-nums" data-field="meta"></div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="replace">Replace</button>
+                                    {% if optional %}<button type="button" class="btn btn-sm btn-outline-secondary" data-action="remove" aria-label="Remove {{ title }}"><i class="bi bi-x-lg" aria-hidden="true"></i></button>{% endif %}
+                                </div>
+                                <ul class="check-list" data-field="checks" aria-live="polite"></ul>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="card mt-4 d-none" id="preview-card">
+                    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+                        <span><i class="bi bi-eye me-2" aria-hidden="true"></i>Preview</span>
+                        <ul class="nav nav-pills small" role="tablist">
+                            <li class="nav-item" role="presentation"><button class="nav-link active py-1" data-bs-toggle="pill" data-bs-target="#preview-train" type="button" role="tab">Train.csv</button></li>
+                            <li class="nav-item" role="presentation"><button class="nav-link py-1" data-bs-toggle="pill" data-bs-target="#preview-test" type="button" role="tab">Test.csv</button></li>
+                        </ul>
+                    </div>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="preview-train" role="tabpanel"><div class="table-responsive" style="max-height: 260px"></div></div>
+                        <div class="tab-pane fade" id="preview-test" role="tabpanel"><div class="table-responsive" style="max-height: 260px"></div></div>
+                    </div>
+                    <div class="card-footer small-muted bg-transparent">First rows of each file. The <span class="px-1 rounded" style="background: var(--sb-brand-soft)">Time and Event</span> columns are highlighted.</div>
+                </div>
+
+                <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 mt-4">
+                    <div class="small-muted" id="form-status" aria-live="polite">Add both files to continue.</div>
+                    <button type="submit" class="btn btn-primary btn-lg" id="submit-btn" disabled>
+                        <span class="btn-label">Continue to configuration<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></span>
+                        <span class="btn-busy d-none"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Checking the data…</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card p-4 mb-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-list-check me-2 text-primary" aria-hidden="true"></i>Data requirements</h2>
+                <ul class="check-list mt-0">
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>One row per patient, a header row, comma separated</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span><code>Time</code>: follow-up time (event or last contact), positive, same unit in both files</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span><code>Event</code>: 1 if the event happened at Time, 0 if censored</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Other columns are features: numeric or categorical; missing values are imputed</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span><code>ID</code> (or <code>patient_id</code>): optional, never a feature</span></li>
+                </ul>
+            </div>
+            <div class="card p-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-table me-2 text-primary" aria-hidden="true"></i>Example</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm preview-table mb-2">
+                        <thead><tr><th>ID</th><th class="target-col">Time</th><th class="target-col">Event</th><th>Age</th><th>Stage</th><th>CEA</th></tr></thead>
+                        <tbody>
+                            <tr><td>CRC0001</td><td class="target-col">31.2</td><td class="target-col">1</td><td>73</td><td>III</td><td>12.8</td></tr>
+                            <tr><td>CRC0002</td><td class="target-col">58.0</td><td class="target-col">0</td><td>58</td><td>II</td><td>3.1</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="small-muted mb-3">Overall survival (months) after colorectal cancer surgery: 800 patients in Train.csv, 300 in Test.csv. Maximum 50 MB per upload.</div>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('survival_example', name='Train.csv') }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Example Train.csv</a>
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('survival_example', name='Test.csv') }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Example Test.csv</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/survival_upload.js') }}"></script>
+{% endblock %}

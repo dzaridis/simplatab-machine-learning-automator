@@ -12,6 +12,7 @@ PHASES = {
     "tabular": ["bias", "data", "kfold", "test", "done"],
     "time-series-forecasting": ["data", "kfold", "test", "done"],
     "clustering": ["data", "kfold", "test", "done"],
+    "survival-analysis": ["data", "kfold", "test", "done"],
 }
 DEFAULT_PHASES = ["prep", "kfold", "test", "done"]
 PHASE_NAMES = {"bias": "bias assessment", "data": "preparing data", "prep": "preparing images",
