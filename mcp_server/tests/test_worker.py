@@ -68,7 +68,7 @@ class TestContracts(unittest.TestCase):
     def test_example_configurations_use_known_models(self):
         from simplatab_mcp.examples import QUICK
         self.assertEqual(set(QUICK), set(AUTOMATORS))
-        for automator, models in (("object-detection", ["fasterrcnn_mobilenet"]), ("time-series-forecasting", ["NHITS", "DLinear"]),
+        for automator, models in (("object-detection", ["ssdlite"]), ("time-series-forecasting", ["NHITS", "DLinear"]),
                                   ("image-classification", ["efficientnet_b0"])):
             keys = {m["key"] for m in contracts.models(automator, 2)}
             self.assertTrue(set(models) <= keys, automator)
@@ -144,6 +144,60 @@ class TestData(Workspace):
         defaults = configs.defaults("image-segmentation", summary)
         self.assertIn("nnunet_2d", defaults["models"])
         self.assertTrue(defaults["augmentation"]["horizontal_flip"])  # colour photos
+
+
+EXAMPLES = [("tabular", "2d"), ("time-series-forecasting", "2d"), ("image-classification", "2d"),
+            ("image-classification", "3d"), ("object-detection", "2d"), ("object-detection", "3d"),
+            ("image-segmentation", "2d"), ("image-segmentation", "3d")]
+
+
+class TestDetect(Workspace):
+    def test_every_example_is_recognised(self):
+        from simplatab_mcp.detect import inspect
+        from simplatab_mcp.examples import example
+        for automator, variant in EXAMPLES:
+            with self.subTest(automator=automator, variant=variant):
+                data = example(automator, variant, self.dir / "ws")
+                found = inspect(data["train"])
+                self.assertEqual(found["suggested_automator"], automator, found)
+                if automator == "image-classification":
+                    self.assertEqual(found["candidates"][0]["dim"], 3 if variant == "3d" else 2)
+
+    def test_unknown_layouts(self):
+        from simplatab_mcp.detect import inspect
+        data = self.dir / "data"
+        (data / "loose").mkdir(parents=True)
+        (data / "loose" / "notes.txt").write_text("x")
+        (data / "values.csv").write_text("a,b\n1,2\n")
+        for path in ("loose", "values.csv"):
+            found = inspect(path)
+            self.assertIsNone(found["suggested_automator"])
+            self.assertTrue(found["notes"])
+
+
+class TestHostPaths(unittest.TestCase):
+    def test_translation_both_ways(self):
+        from simplatab_mcp import paths
+        env = {"SIMPLATAB_WORKSPACE": "/srv/ws", "SIMPLATAB_DATA_DIR": "/data", "SIMPLATAB_HOST_DATA_DIR": "C:\\Users\\Me\\study",
+               "SIMPLATAB_HOST_WORKSPACE_DIR": "/home/me/runs"}
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        try:
+            from unittest import mock
+            with mock.patch.object(paths, "workspace", lambda: Path("/srv/ws")):
+                self.assertEqual(paths.to_container("c:\\users\\me\\Study\\a\\Train.csv"), "/data/a/Train.csv")
+                self.assertEqual(paths.to_container("/home/me/runs/uploads/x.zip"), "/srv/ws/uploads/x.zip")
+                self.assertEqual(paths.to_container("/elsewhere/x.csv"), "/elsewhere/x.csv")
+                self.assertEqual(paths.to_container("/home/me/runsx/a"), "/home/me/runsx/a")  # a prefix, not a folder
+                self.assertEqual(paths.to_host("/srv/ws/experiments/e1/Materials"), "/home/me/runs/experiments/e1/Materials")
+                self.assertEqual(paths.to_host("/data/a.csv"), "C:/Users/Me/study/a.csv")
+                self.assertIsNone(paths.to_host("/etc/hosts"))
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 class TestRun(Workspace):

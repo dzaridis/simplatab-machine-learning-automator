@@ -11,7 +11,7 @@ QUICK = {
     "tabular": {"models": ["logistic_regression", "random_forest", "xgboost"], "k_folds": 3,
                 "hyperparameter_search": "none"},
     "image-classification": {"mode": "features", "k_folds": 3},
-    "object-detection": {"models": ["fasterrcnn_mobilenet"], "validation": "holdout", "epochs": 3, "image_size": 320,
+    "object-detection": {"models": ["ssdlite"], "validation": "holdout", "epochs": 3, "image_size": 320,
                          "drise_images": 1, "drise_masks": 50},
     "image-segmentation": {"validation": "holdout", "epochs": 3, "iterations": 10, "nnunet_epochs": 2,
                            "nnunet_iterations": 10},

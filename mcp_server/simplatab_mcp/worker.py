@@ -53,6 +53,11 @@ def contract(args):
     return contracts.contract(args.automator, int(args.dim) if args.dim else None)
 
 
+def inspect_data(args):
+    from .detect import inspect
+    return inspect(args.train)
+
+
 def example(args):
     from .examples import example as make
     return make(args.automator, args.variant, workspace())
@@ -128,7 +133,7 @@ def results_command(args):
     return results.collect(str(experiment), _load(experiment)["automator"])
 
 
-COMMANDS = {"info": info, "contract": contract, "example": example, "prepare": prepare, "configure": configure,
+COMMANDS = {"info": info, "contract": contract, "example": example, "inspect": inspect_data, "prepare": prepare, "configure": configure,
             "run": run, "results": results_command}
 
 
@@ -141,6 +146,7 @@ def main(argv=None):
     parser.add_argument("--config")
     parser.add_argument("--variant")
     parser.add_argument("--dim")
+    parser.add_argument("--train")
     args = parser.parse_args(argv)
     _setup()
     output = os.path.abspath(args.output)
