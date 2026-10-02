@@ -205,6 +205,12 @@ class TestPipeline(TempDir):
         finally:
             os.chdir(cwd)
 
+    @staticmethod
+    def install_line(info):
+        """The install line of the usage card: the code shown is that of the best network on the test set
+        (nnU-Net or TorchScript), whichever of the two kinds wins on this machine."""
+        return "nnunetv2==2.4.2" if info["models"][info["best_model"]]["library"] == "nnunet" else "monai==1.3.2"
+
     def results_page(self):
         import app as appmod
         from werkzeug.test import Client
@@ -249,7 +255,7 @@ class TestPipeline(TempDir):
 
         page = self.results_page()
         for text in ("2-fold cross-validation", "nnU-Net 2D", "U-Net ResNet-34", "HD95", "Masks &amp; uncertainty",
-                     "nnunetv2==2.4.2", "Test Dice per class", "Predicted test masks"):
+                     self.install_line(info), "Test Dice per class", "Predicted test masks"):
             self.assertIn(text, page)
 
     def test_3d_holdout_two_series(self):
@@ -267,7 +273,7 @@ class TestPipeline(TempDir):
             outputs = [os.path.join(root, "Predictions", safe, f"{c}.nii.gz") for c in ("case_000", "case_001")]
             _run_snippet(self, root, info, {"name": name, **exported}, inputs, outputs)
         page = self.results_page()
-        for text in ("hold-out validation", "2 channels (t2, adc)", "monai==1.3.2", "new_case/t2", "mm, ↓"):
+        for text in ("hold-out validation", "2 channels (t2, adc)", self.install_line(info), "new_case/t2", "mm, ↓"):
             self.assertIn(text, page)
 
     def test_too_few_cases_for_the_folds(self):
