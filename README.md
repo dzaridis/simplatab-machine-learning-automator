@@ -11,8 +11,9 @@ explains their predictions and gives you the trained models. Your data never lea
 | **3D Image Classification** (same automator) | `Train.zip`, `Test.zip` of studies with one or more series (DICOM series, NIfTI), e.g. T2 + ADC + DWI | 18 3D networks. Pretrained: MedicalNet ResNet-10/18/50, R3D-18, R(2+1)D-18, MC3-18, Video Swin-T, SwinUNETR Swin-ViT (self-supervised on CT), DINOv2-Small 2.5D. From scratch: MedNeXt-S, ConvNeXt V2 3D, 3D UX-Net, nnU-Net ResEnc-M, SwinUNETR-V2, ViT-Small 3D (UNETR), SEResNeXt-50 3D, EfficientNet-B0 3D, DenseNet-121 3D | 3D Grad-CAM |
 | **Time Series Forecasting** | `Train.csv`, `Test.csv` in long format (e.g. repeated measurements of patients), with static, past and future covariates | 10 [neuralforecast](https://github.com/Nixtla/neuralforecast) networks: NHITS, NBEATSx, TiDE, KAN, DLinear, TFT, PatchTST, BiTCN, TCN, TimesNet | Integrated gradients |
 | **Object Detection** | `Train.zip`, `Test.zip` of 2D images or 3D volumes (DICOM, NIfTI, PNG, JPEG, …) with boxes in COCO, YOLO, Pascal VOC, CSV or mask format | 10 pretrained detectors: Faster R-CNN v2, RetinaNet v2, FCOS, Faster R-CNN MobileNetV3, SSDLite (torchvision); RT-DETR, RT-DETRv2, D-FINE-M, Deformable DETR, Conditional DETR (transformers) | D-RISE |
+| **Image Segmentation** | `Train.zip`, `Test.zip` of images and masks: 2D medical or everyday images (PNG, JPEG, DICOM, NIfTI, …), 3D volumes with one or more series (DICOM, NIfTI), or the nnU-Net raw format | 2D: the official **nnU-Net v2**, U-Net ResNet-34, U-Net++ EfficientNet-B4, DeepLabV3+ ResNet-50, FPN and UPerNet ConvNeXt-Tiny, SegFormer-B2, MA-Net ResNet-50 (pretrained), Attention U-Net, U-Net (nnU-Net-like). 3D: **nnU-Net v2** 3D full resolution, SwinUNETR (self-supervised on CT), SwinUNETR-V2, SegResNet, DynUNet, UNETR, MedNeXt-S, Attention U-Net, U-Net++, V-Net | Uncertainty maps (test-time augmentation) |
 
-Classification: binary and multiclass problems. Image segmentation is planned.
+Classification: binary and multiclass problems. Segmentation: up to 32 classes.
 
 ## Quick start
 
@@ -48,7 +49,7 @@ docker run --gpus all --shm-size=4g -p 7111:5000 dimzaridis/simplatab-machine-le
 1. **Upload** the training and test sets. They are checked in the browser (and on the server) before anything runs.
 2. **Configure**: choose the models and the validation settings; every setting is explained on the page.
 3. **Run**: follow each model live through the K-fold cross-validation and the external test.
-4. **Results**: compare metrics and curves, inspect SHAP, Grad-CAM, integrated gradients or D-RISE explanations, download everything.
+4. **Results**: compare metrics and curves, inspect SHAP, Grad-CAM, integrated gradients, D-RISE explanations or segmentation uncertainty maps, download everything.
 
 Each model is trained and validated with **stratified K-fold cross-validation** on the training set. For binary
 problems, the decision threshold that maximises the metric of your choice (balanced accuracy by default) is found
@@ -66,6 +67,10 @@ Object detection offers **K-fold cross-validation** (folds grouped by patient fo
 each training fold, final networks retrained on all the images for the median best number of epochs) or a faster
 **hold-out validation** (one split; the network trained on it is the final network). The score threshold that
 maximises the F1 score on the validation images is used on the test set.
+
+Image segmentation offers the same two modes: **K-fold cross-validation** (folds grouped by patient folder and
+stratified on the classes present; final networks retrained on all of Train.zip, nnU-Net as its `all` fold) or
+**hold-out validation** (the network trained on the split is the final network).
 
 ## Your data
 
@@ -132,19 +137,38 @@ also be classified in 2D, one image per file). Layout: `<class>/<patient>/<study
 - Example data: [`Examples/object-detection`](Examples/object-detection) (2D radiograph-like images with COCO boxes,
   3D CT-like volumes with CSV boxes), also downloadable from the upload page.
 
+**Image segmentation**: two zip files (up to 5 GB each) with the images and their masks, in one of two layouts:
+- `images/` and `masks/` with mirrored paths, e.g. `images/case_01.png` and `masks/case_01.png` (mask names may
+  end with `_mask`, `_seg`, …); a sub-folder per patient keeps a patient's cases in the same fold. For 3D cases with
+  several series, `images/<case>/` holds them (e.g. `t2/` DICOM slices and `adc.nii.gz`) and `masks/<case>.nii.gz`;
+- the **nnU-Net raw format**: `imagesTr/case_0000.nii.gz` (one file per channel), `labelsTr/case.nii.gz` and
+  `dataset.json` (`imagesTs/`, `labelsTs/` in Test.zip).
+- Masks are label images (0 = background; 0/255 binary masks are read as 0/1), palette PNGs or colour masks; the
+  classes are named in `labels.json` (`{"1": "liver"}`), `classes.txt` (`1,liver`) or `dataset.json`.
+- 3D series are reoriented and **aligned in patient coordinates** on a reference series (the input and output grid);
+  the series with the same name in every case are the input channels.
+- **nnU-Net** plans its own preprocessing, network and training from your data (a shorter schedule than its 1000
+  epochs can be chosen). The other networks follow its recipe: resampling to the median spacing, CT or z-score
+  normalisation, patches planned from the median size (a third centred on a structure), Dice + cross-entropy loss,
+  sliding-window inference. **Test-time flips** give the uncertainty maps (entropy of the averaged probabilities).
+- Example data: [`Examples/image-segmentation`](Examples/image-segmentation) (2D aerial-like tiles with building and
+  road colour masks; 3D prostate-like MRI, T2 DICOM series and ADC NIfTI, with gland and lesion masks), also
+  downloadable from the upload page.
+
 ## What you get
 
 Everything is written to the `Materials` folder, shown on the results page and downloadable as one zip:
 
 | Output | Files |
 |---|---|
-| Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline; detection: mAP, AP at IoU 0.5/0.75 (3D: 0.1/0.25/0.5), recall, FROC, precision/recall/F1 and image-level sensitivity/specificity at the threshold) | `<K>_fold_results.xlsx` (mean ± SD) or `holdout_results.xlsx`, `test_results.xlsx`, `Metrics_Plots/` (forecasting) |
-| Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/`, `Detection_Curves/` (precision-recall, FROC, AP per class) |
+| Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline; detection: mAP, AP at IoU 0.5/0.75 (3D: 0.1/0.25/0.5), recall, FROC, precision/recall/F1 and image-level sensitivity/specificity at the threshold; segmentation: Dice, IoU, HD95, ASSD, sensitivity, precision) | `<K>_fold_results.xlsx` (mean ± SD) or `holdout_results.xlsx`, `test_results.xlsx`, `Metrics_Plots/` (forecasting) |
+| Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/`, `Detection_Curves/` (precision-recall, FROC, AP per class), `Segmentation_Plots/` |
 | Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images; 3D: the slices where the map is strongest), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps) |
-| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors), `Models/<model>.zip` (forecasting, transformers detectors) |
+| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors, segmentation networks), `Models/<model>.zip` (forecasting, transformers detectors, nnU-Net model folders) |
 | Forecasts vs. observed values | `Forecasts/test_forecasts.csv`, `Forecasts/future_forecasts.csv` (beyond the data, without future covariates), `Forecast_Plots/` |
 | Image predictions and classes | `Predictions/<network>_test_predictions.csv` (one row per image or 3D study), `classes.csv` |
 | Detections drawn on test images (true positives, false positives, missed boxes) | `Detections/` |
+| Predicted test masks (original mask values; 3D: NIfTI on the grid of the first series), metrics per class and case, overlays with the uncertainty map (worst, median and best test cases) | `Predictions/<network>/`, `Segmentation_Metrics/`, `Overlays/<network>/` |
 
 Each run replaces the results of the previous one.
 
@@ -252,6 +276,29 @@ print(boxes, [info["classes"][k - 1] for k in out["labels"][keep]])
 The code of the results page also covers the transformers detectors, DICOM and NIfTI images and 3D volumes
 (slice-by-slice detection and merging into 3D boxes).
 
+**Image segmentation**: the `.pt` networks are TorchScript files (normalised patch → class logits) with
+`simplatab.json` (patch size, normalisation, spacing, classes and mask values); the code of the results page reads,
+aligns, normalises and resamples a new case, predicts by overlapping patches with MONAI and writes the mask. The
+nnU-Net `.zip` files are nnU-Net v2 model folders, also usable with `nnUNetv2_predict`:
+```bash
+pip install nnunetv2==2.4.2 acvl-utils==0.2 "numpy<2" SimpleITK==2.5.2
+```
+```python
+import functools, shutil
+import torch
+torch.load = functools.partial(torch.load, weights_only=False)   # nnU-Net 2.4 checkpoints hold training metadata
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+
+if __name__ == "__main__":   # nnU-Net starts worker processes
+    shutil.unpack_archive("Materials/Models/nnU-Net_3D_full_resolution.zip", "nnunet_model")
+    predictor = nnUNetPredictor(device=torch.device("cpu"), perform_everything_on_device=False)
+    predictor.initialize_from_trained_model_folder("nnunet_model", use_folds=("all",))   # (0,) after a hold-out run
+    predictor.predict_from_files([["case_0000.nii.gz", "case_0001.nii.gz"]],   # one file per series, aligned
+                                 ["predictions/case"])                           # -> predictions/case.nii.gz
+```
+The class indices of nnU-Net masks follow the classes of the run (`run_info.json`); the code of the results page
+maps them back to your mask values and aligns the series as in training.
+
 ## Notes on the deep learning models
 
 - **Forecasting networks** are trained from scratch on your series (no pretrained weights). On CPU most take
@@ -269,7 +316,12 @@ The code of the results page also covers the transformers detectors, DICOM and N
 - **Detectors** are pretrained on COCO and fine-tuned on your boxes, with images resized to a square (320 to
   1024 px). A GPU is strongly recommended: on CPU, fine-tuning takes minutes per epoch for the larger networks;
   Faster R-CNN MobileNetV3 and SSDLite are the fast choices. Hold-out validation trains each network once.
-- Pretrained weights (TabPFNv2, TabICL, the 10 image networks, the 3D networks and the 10 detectors) are included
+- **Segmentation**: nnU-Net is the reference of medical segmentation challenges but is slow on CPU (choose fewer
+  epochs, or the GPU image); its 3D networks need a GPU for real data. The 2D encoders are pretrained on ImageNet
+  (trained with 30% of the learning rate), SwinUNETR uses the CT self-supervised encoder; the other networks are
+  trained from scratch with a fixed number of epochs × iterations, as nnU-Net.
+- Pretrained weights (TabPFNv2, TabICL, the 10 image networks, the 3D networks, the 10 detectors and the 2D
+  segmentation encoders) are included
   in the Docker images; from source they are downloaded from the Hugging Face Hub, PyTorch or GitHub on first use.
 - A GPU is used automatically when available. A model that cannot run on a dataset is skipped and reported,
   and the others still complete.
@@ -287,10 +339,11 @@ python -m unittest discover tests
 ```
 Code layout: `app.py` (web app), `Helpers/` (tabular pipeline), `Helpers/image/` (image pipeline),
 `Helpers/image3d/` (3D image pipeline),
-`Helpers/forecasting/` (forecasting pipeline), `Helpers/detection/` (object detection pipeline), `web/`
+`Helpers/forecasting/` (forecasting pipeline), `Helpers/detection/` (object detection pipeline),
+`Helpers/segmentation/` (segmentation pipeline; `nnunet_runner.py` runs nnU-Net in a separate process), `web/`
 (automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning).
 `Examples/` holds the outputs of example runs on the Iris and breast cancer datasets, the example time series and
-the example detection and 3D data. Set `SIMPLATAB_PRETRAINED=0` to run the detection and 3D automators without downloading weights
+the example detection, 3D and segmentation data. Set `SIMPLATAB_PRETRAINED=0` to run the detection, 3D and segmentation automators without downloading weights
 (randomly initialised networks, e.g. for tests).
 
 ## Authors

@@ -127,27 +127,32 @@ AUTOMATORS = [
     Automator(
         slug="image-segmentation",
         name="Image Segmentation",
-        tagline="Automated delineation of regions of interest in images",
+        tagline="Delineate structures in medical and natural images, 2D and 3D",
         description=(
-            "Train segmentation networks from images and their masks, and evaluate the "
-            "delineations against expert annotations."
+            "Train, validate and compare segmentation networks, from the official self-configuring nnU-Net to "
+            "pretrained U-Nets, SegFormer and 3D transformers, on images or volumes and their masks, with "
+            "overlap and distance metrics and uncertainty maps."
         ),
         icon="bounding-box-circles",
-        status="coming_soon",
+        status="available",
+        endpoint="segmentation",
         inputs=[
-            "Images and their masks with matching file names",
-            "2D images, with 3D volumes (NIfTI) planned",
-            "One or several labelled structures per mask",
+            "Train.zip and Test.zip with an images/ and a masks/ folder (or the nnU-Net layout)",
+            "2D: PNG, JPEG, TIFF, DICOM, NIfTI; 3D: NIfTI, DICOM series, several series per case",
+            "Masks: label images, palette or colour PNGs, NIfTI label maps; one or several classes",
         ],
         steps=[
-            "Consistency checks of images and masks, resampling and normalisation",
-            "U-Net family architectures with automatically configured training",
-            "Cross-validation and evaluation on a held-out test set",
+            "Images and masks matched, read, aligned in patient space, mapped to classes",
+            "The official nnU-Net v2 (2D or 3D full resolution) with a selectable schedule",
+            "2D: U-Net, U-Net++, DeepLabV3+, FPN, UPerNet, SegFormer, MA-Net (ImageNet encoders), Attention U-Net",
+            "3D: SwinUNETR (CT self-supervised), SwinUNETR-V2, SegResNet, DynUNet, UNETR, MedNeXt, V-Net and more",
+            "K-fold cross-validation grouped by patient, or hold-out validation",
+            "Sliding-window inference with test-time flips and uncertainty maps",
         ],
         outputs=[
-            "Overlap and distance metrics (Dice, IoU, Hausdorff distance)",
-            "Predicted masks and overlays for visual review",
-            "Exported trained models",
+            "Dice, IoU, HD95, ASSD, sensitivity and precision per class and per case",
+            "Overlays of the reference and predicted masks with uncertainty, predicted masks",
+            "Trained networks ready to reuse (TorchScript, or the nnU-Net model folder)",
         ],
     ),
     Automator(

@@ -54,6 +54,10 @@ RUN python Helpers/detection/models.py || echo "WARNING: pretrained weights not 
 COPY Helpers/image3d/models.py Helpers/image3d/models.py
 RUN python Helpers/image3d/models.py || echo "WARNING: pretrained weights not downloaded, they will be downloaded on first use"
 
+# Download the ImageNet weights of the pretrained 2D encoders of the image segmentation
+COPY Helpers/segmentation/models.py Helpers/segmentation/models.py
+RUN python Helpers/segmentation/models.py || echo "WARNING: pretrained weights not downloaded, they will be downloaded on first use"
+
 # Copy the current directory contents into the container
 COPY . .
 
