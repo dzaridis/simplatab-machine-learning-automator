@@ -22,6 +22,7 @@ import torch
 from sklearn.model_selection import StratifiedKFold
 
 from Helpers import MetricsReport, behave_metrics
+from Helpers.splits import index_rows, write_splits
 from . import dataset
 from .explain import save_gradcam_figures
 from .inference import export_model
@@ -159,6 +160,10 @@ def _run(input_folder, params):
     _banner("Training on K-Fold cross validation")
     skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=10)
     folds = list(skf.split(np.zeros(len(y_train)), y_train))
+    write_splits(index_rows(folds, train["files"], {"class": [classes[c] for c in y_train]}), materials=MATERIALS,
+                 kind="kfold", description=f"Stratified {k}-fold cross-validation of Train.zip (shuffled, random_state=10). "
+                 "id: the image path inside Train.zip. In fine-tuning, 10% of each training fold (stratified, at "
+                 "least one image per class) is held out for early stopping.")
     scores_storage, thresholds, best_epochs, features = {}, {}, {}, {}
     for backbone in backbones:
         name = backbone.name

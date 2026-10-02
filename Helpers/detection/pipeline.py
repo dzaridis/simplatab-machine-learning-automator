@@ -29,6 +29,7 @@ from . import dataset as dd
 from . import metrics as M
 from . import plots
 from Helpers.image import io as mio
+from Helpers.splits import index_rows, write_splits
 from .annotations import AnnotationError, load_split
 from .explain import drise
 from .models import BY_KEY, input_size
@@ -112,6 +113,25 @@ def _validate(spec, items, train_indices, classes, dim, params, log):
         del model
         _free()
     return folds, float(np.mean([f["threshold"] for f in folds])), int(np.median([f["epoch"] for f in folds]))
+
+
+def _write_splits(items, train_indices, params):
+    """Materials/Splits/: the images of each fold, as _validate splits them (same seeds)."""
+    seed = params.get("seed", 0)
+    if params["validation"] == "holdout":
+        folds, sets = [dd.holdout_split(items, train_indices, params["holdout_fraction"], seed=seed)], ("train", "validation")
+        description = (f"Hold-out split of Train.zip grouped by patient folder (about {params['holdout_fraction']:.0%} "
+                       "for validation, also used for early stopping).")
+    else:
+        folds, sets = [], ("train", "early_stopping", "validation")
+        for k, (fit, val) in enumerate(dd.kfold_splits(items, train_indices, params["k_folds"], seed=seed)):
+            folds.append((*dd.holdout_split(items, fit, 0.15, seed=k), val))
+        description = (f"{params['k_folds']}-fold cross-validation of Train.zip grouped by patient folder and stratified on "
+                       "the main class of each image; 15% of each training fold stops the training early.")
+    extra = {"patient": [it.group for it in items], "boxes": [len(it.labels) for it in items]}
+    write_splits(index_rows(folds, [it.name for it in items], extra, sets=sets), materials=MATERIALS,
+                 kind="holdout" if params["validation"] == "holdout" else "kfold",
+                 description=description + " id: the image (or volume) of Train.zip.")
 
 
 # ---------------------------------------------------------------------------------------
@@ -267,6 +287,10 @@ def _run(input_folder, params):
     os.makedirs(state_folder, exist_ok=True)
 
     # ---- Validation ------------------------------------------------------------------------
+    try:
+        _write_splits(items, train_indices, params)
+    except Exception as e:  # e.g. too few patients for the folds: reported by the validation below
+        print(f"The validation splits could not be written: {e}")
     holdout = params["validation"] == "holdout"
     stage = "Training on hold-out validation" if holdout else "Training on K-Fold cross validation"
     _banner(f"{stage} ({params['holdout_fraction']:.0%} of the images)" if holdout else f"{stage} ({params['k_folds']} folds)")

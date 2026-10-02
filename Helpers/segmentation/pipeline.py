@@ -23,6 +23,7 @@ import torch
 from . import data, figures, metrics as M, preprocessing as P
 from .inference import export_model
 from .models import BY_KEY, divisor, fit_patch
+from Helpers.splits import index_rows, write_splits
 from .nnunet import NNUNet
 from .training import PreparedCase, describe_device, predict, to_original, train
 
@@ -175,6 +176,15 @@ def _run(input_folder, params):
 
     folds = [holdout_split(train_metas, float(params.get("holdout_fraction", 0.2)), seed)] if holdout \
         else kfold_splits(train_metas, k, seed)
+    present = ["; ".join(classes[c] for c in m["present"] if c) for m in train_metas]
+    write_splits(index_rows(folds, [m["id"] for m in train_metas], {"patient": [m["group"] for m in train_metas],
+                                                                     "classes_present": present}),
+                 materials=MATERIALS, kind="holdout" if holdout else "kfold",
+                 description=(f"Hold-out split of Train.zip grouped by patient ({params.get('holdout_fraction', 0.2):.0%} "
+                              "of the cases for validation)" if holdout else
+                              f"{k}-fold cross-validation of Train.zip grouped by patient and stratified on the classes "
+                              "present") + f" (random_state={seed}); nnU-Net uses the same folds (splits_final.json). "
+                              "id: the case (mask path inside masks/, without extension).")
 
     # Preprocessing plan and prepared training cases of the automator's networks
     ours = [s for s in specs if s.family != "nnunet"]

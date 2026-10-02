@@ -228,6 +228,14 @@ class TestPipeline(TempDir):
         info = json.load(open(os.path.join(root, "run_info.json")))
         self.assertEqual((info["automator"], info["dim"], info["channels"], info["unit"]), ("image-segmentation", 2, 3, "px"))
         self.assertEqual(info["models"]["nnU-Net 2D"]["fold"], "all")
+        import pandas as pd
+        splits = pd.read_csv(os.path.join(root, "Splits", "splits.csv"))
+        validation = splits[splits.set == "validation"]
+        self.assertEqual(sorted(validation.id), sorted(splits.id.unique()))
+        self.assertEqual(validation.groupby("patient").fold.nunique().max(), 1)
+        nnunet_splits = json.load(open(os.path.join(self.dir, "input", "work", "nnunet", "preprocessed",
+                                                    "Dataset501_Simplatab", "splits_final.json")))
+        self.assertEqual([len(f["val"]) for f in nnunet_splits], [len(validation[validation.fold == k]) for k in (1, 2)])
         import zipfile
         names = zipfile.ZipFile(os.path.join(root, "Models", "nnU-Net_2D.zip")).namelist()
         self.assertIn("fold_all/checkpoint_final.pth", names)

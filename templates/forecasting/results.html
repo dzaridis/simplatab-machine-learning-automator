@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import page_header, filesize %}
+{% from "_macros.html" import page_header, filesize, splits_card %}
 {% from "_usage.html" import forecast_usage_card %}
 {% block title %}Results · Time Series Forecasting{% endblock %}
 
@@ -215,6 +215,7 @@
             </div>
             {{ forecast_usage_card(results.models, results.best.model if results.best else None, info) }}
             {% endif %}
+            {{ splits_card(results.splits) }}
             <div class="card">
                 <div class="card-header py-3">All files <span class="small-muted fw-normal">({{ results.files | length }})</span></div>
                 <div class="table-responsive" style="max-height: 420px">

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import page_header, filesize %}
+{% from "_macros.html" import page_header, filesize, splits_card %}
 {% from "_usage.html" import segmentation_usage_card %}
 {% block title %}Results · Image Segmentation{% endblock %}
 
@@ -217,6 +217,7 @@
                 </ul>
             </div>
             {% endif %}
+            {{ splits_card(results.splits) }}
             <div class="card">
                 <div class="card-header py-3">All files <span class="small-muted fw-normal">({{ results.files | length }})</span></div>
                 <div class="table-responsive" style="max-height: 420px">

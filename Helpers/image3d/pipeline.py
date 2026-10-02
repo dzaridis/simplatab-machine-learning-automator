@@ -18,6 +18,7 @@ import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold
 
 from Helpers import MetricsReport, behave_metrics
+from Helpers.splits import index_rows, write_splits
 from Helpers.image.io import CT_WINDOWS
 from Helpers.image.pipeline import (MATERIALS, MODES, FixedProbabilities, _banner, _fold_threshold, _free_memory,
                                     _model_line, _predictions, _safe, _scores)
@@ -104,6 +105,11 @@ def _run(input_folder, params):
     _banner("Training on K-Fold cross validation")
     folds = list(StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=10).split(
         np.zeros(len(y_train)), y_train, groups=train["patients"]))
+    write_splits(index_rows(folds, train["studies"], {"patient": train["patients"], "class": [classes[c] for c in y_train]}),
+                 materials=MATERIALS, kind="kfold",
+                 description=f"Stratified {k}-fold cross-validation of Train.zip grouped by patient (shuffled, "
+                 "random_state=10). id: the study inside Train.zip. In fine-tuning, 10% of each training fold "
+                 "(stratified) is held out for early stopping.")
     scores_storage, thresholds, best_epochs, features = {}, {}, {}, {}
     for spec in networks:
         name = spec.name

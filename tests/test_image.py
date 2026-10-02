@@ -193,6 +193,12 @@ class TestPipeline(TempDirTestCase):
                      "GradCAM/EfficientNet-B0/EfficientNet-B0_gradcam_lesion.png",
                      "ConfusionMatrices/EfficientNet-B0_Test_confusion_matrix.png"):
             self.assertTrue(os.path.exists(os.path.join(materials, path)), path)
+        import pandas as pd
+        splits = pd.read_csv(os.path.join(materials, "Splits", "splits.csv"))
+        self.assertEqual(sorted(splits.fold.unique()), [1, 2, 3])
+        validation = splits[splits.set == "validation"]
+        self.assertEqual(len(validation), validation.id.nunique())  # each image validated once
+        self.assertTrue(set(validation.id) == set(splits.id))
 
         # The exported network reproduces the test predictions from the original files
         import pandas as pd

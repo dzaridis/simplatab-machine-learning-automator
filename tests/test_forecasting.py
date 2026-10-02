@@ -181,6 +181,11 @@ class TestPipelineAndUsage(TempDir):
                      "Forecast_Plots/NHITS_test_forecasts.png", "Explainability/NHITS_integrated_gradients.png"]:
             self.assertTrue(os.path.exists(os.path.join(root, path)), path)
         self.assertFalse(os.path.exists(os.path.join(root, "Forecasts", "future_forecasts.csv")))  # needs future covariates
+        splits = pd.read_csv(os.path.join(root, "Splits", "splits.csv"))
+        self.assertEqual(list(splits.columns), ["fold", "set", "id", "start", "end", "points"])
+        validation = splits[splits.set == "validation"]
+        self.assertTrue((validation.points == 4).all())  # one horizon per window and series
+        self.assertEqual(sorted(validation.fold.unique()), [1, 2])
         tests = pd.read_excel(os.path.join(root, "test_results.xlsx"), index_col=0)
         self.assertEqual(list(tests.index), ["NHITS", "DLinear", "Seasonal naive"])
         forecasts = pd.read_csv(os.path.join(root, "Forecasts", "test_forecasts.csv"))

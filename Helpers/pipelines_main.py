@@ -331,7 +331,22 @@ def read_yaml(input_folder):
                 hypers.append(model_info["default_params"])
 
 
-def train_k_fold(X_train, y_train):
+def write_kfold_splits(X_train, y_train, skf, rows=None, has_ids=True):
+    """Materials/Splits/: the samples of each fold (ID column of Train.csv and line number)."""
+    from Helpers.splits import index_rows, write_splits
+    folds = list(skf.split(X_train, y_train))
+    rows = list(rows) if rows is not None and len(rows) == len(X_train) else None
+    ids = list(X_train.index) if has_ids or rows is None else rows
+    extra = {"class": y_train.to_numpy()}
+    if rows is not None:
+        extra["row"] = rows
+    write_splits(index_rows(folds, ids, extra), materials="./Materials", kind="kfold",
+                 description=f"Stratified {len(folds)}-fold cross-validation of Train.csv (shuffled, random_state=10). "
+                             "id: the ID (or patient_id) column, else the row; row: the line of Train.csv, "
+                             "the first data line being 1 (rows with missing values are removed before).")
+
+
+def train_k_fold(X_train, y_train, rows=None, has_ids=True):
     log_file = './Materials/error_log.log'
     logging.basicConfig(filename=log_file, level=logging.ERROR, 
                     format='%(asctime)s:%(levelname)s:%(message)s')
@@ -348,6 +363,10 @@ def train_k_fold(X_train, y_train):
     base_models_folds = {}
     # to add the automated k-fold selector based on the number of y
     skf = StratifiedKFold(n_splits=k_folds, shuffle = True, random_state=10)
+    try:
+        write_kfold_splits(X_train, y_train, skf, rows, has_ids)
+    except Exception as e:  # the splits are a by-product: never stop the run
+        logging.error(f"The validation splits could not be written: {e}")
     for cls, hp, nm in zip(classifiers, hypers, names):
         print("-------------------- \n", f"{nm} is starting \n", "--------------------")
         logging.info(f"{nm} is starting")

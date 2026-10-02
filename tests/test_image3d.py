@@ -169,6 +169,11 @@ class TestPipeline(TempDir):
             self.assertTrue(os.path.exists(os.path.join(root, path)), path)
         info = json.load(open(os.path.join(root, "run_info.json")))
         self.assertEqual((info["dim"], info["channels"], info["shape"], info["crop"]), (3, ["t2", "adc"], [32, 64, 64], 0.75))
+        import pandas as pd
+        splits = pd.read_csv(os.path.join(root, "Splits", "splits.csv"))
+        validation = splits[splits.set == "validation"]
+        self.assertEqual(validation.groupby("patient").fold.nunique().max(), 1)  # a patient in one fold only
+        self.assertEqual(sorted(splits.fold.unique()), [1, 2])
         self.assertEqual(info["classes"], ["benign", "malignant"])
 
         # The code of the results page, run without the repository, gives the pipeline's predictions
