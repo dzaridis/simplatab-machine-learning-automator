@@ -365,15 +365,16 @@ maps them back to your mask values and aligns the series as in training.
 ## MCP server for AI agents
 
 [`mcp_server/`](mcp_server/README.md) turns every automator into [Model Context Protocol](https://modelcontextprotocol.io)
-tools, so that agents run experiments by themselves: they read the **data contract** of an automator
-(`get_data_contract`: layout, formats, rules, configuration fields and models), provide the data (a path or an
-upload) and a configuration, then follow the run and read the results (metrics, best model, splits, figures).
+tools, so that agents run experiments by themselves: the server suggests the automator from the data
+(`inspect_data`), gives its **data contract** (`get_data_contract`: layout, formats, rules, configuration fields and
+models), checks the data and the configuration, runs the experiment and returns the results (metrics, best model,
+splits, figures, trained models). It runs locally in Docker, in the background:
 ```bash
-docker build -f mcp_server/Dockerfile -t simplatab-mcp .            # GPU: --build-arg DEVICE=gpu
-claude mcp add simplatab -- docker run -i --rm -v /path/to/data:/data -v simplatab-workspace:/workspace simplatab-mcp
+cp mcp_server/.env.example mcp_server/.env                       # your data and output folders
+docker compose -f mcp_server/compose.yaml up -d --build          # GPU: add -f mcp_server/compose.gpu.yaml
+claude mcp add --transport http simplatab http://localhost:8000/mcp
 ```
-It runs the same pipelines as the web application, over stdio or Streamable HTTP, with a queue of experiments;
-see [mcp_server/README.md](mcp_server/README.md).
+It runs the same pipelines as the web application; see [mcp_server/README.md](mcp_server/README.md).
 
 ## Releases
 

@@ -20,6 +20,11 @@ import time
 import uuid
 from pathlib import Path
 
+try:
+    import fcntl
+except ImportError:  # Windows: one server process per workspace
+    fcntl = None
+
 from . import paths
 
 PACKAGE_PARENT = Path(__file__).resolve().parent.parent
@@ -63,12 +68,57 @@ class WorkerError(RuntimeError):
     pass
 
 
+class WorkspaceLock:
+    """A lock shared by every server process of a workspace (several MCP sessions in one container,
+    e.g. the HTTP server and `docker exec` stdio sessions): only one of them changes the experiment
+    states or starts the queued runs at a time. Reentrant within a thread."""
+
+    def __init__(self, path):
+        self.path = str(path)
+        self._threads = threading.RLock()
+        self._local = threading.local()
+
+    def acquire(self, blocking=True):
+        if getattr(self._local, "depth", 0):
+            self._local.depth += 1
+            return True
+        if not self._threads.acquire(blocking):
+            return False
+        handle = open(self.path, "a")
+        if fcntl is not None:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            except OSError:
+                handle.close()
+                self._threads.release()
+                return False
+        self._local.depth, self._local.handle = 1, handle
+        return True
+
+    def release(self):
+        self._local.depth -= 1
+        if self._local.depth:
+            return
+        handle = self._local.handle
+        if fcntl is not None:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+        self._threads.release()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
 class Experiments:
     def __init__(self, worker_python=None, max_parallel=None):
         self.python = worker_python or os.environ.get("SIMPLATAB_WORKER_PYTHON") or sys.executable
         self.max_parallel = max(1, int(max_parallel or os.environ.get("SIMPLATAB_MAX_PARALLEL", "1")))
         self.root = paths.experiments_dir()
-        self._lock = threading.RLock()
+        self._lock = WorkspaceLock(paths.workspace() / ".simplatab-mcp.lock")
         self._procs = {}
         self._cache = {}
         self._recover()
@@ -134,24 +184,43 @@ class Experiments:
             _write(path, meta)
             return meta
 
+    def inspect(self, train):
+        return self.worker("inspect", timeout=600, train=str(train))
+
     def create(self, automator, train, test, name=None):
+        detected = None
+        if automator == "auto":
+            try:
+                detected = self.inspect(train)
+            except WorkerError as e:
+                return {"experiment_id": None, "state": "invalid", "errors": [str(e)], "warnings": [], "summary": {},
+                        "default_config": None}
+            if not detected["suggested_automator"]:
+                return {"experiment_id": None, "state": "invalid", "detected": detected, "summary": {}, "warnings": [],
+                        "default_config": None, "errors": ["The automator could not be chosen from the data: "
+                                                           + "; ".join(detected["notes"] or ["see detected.candidates"])
+                                                           + ". Give the automator explicitly."]}
+            automator = detected["suggested_automator"]
         stamp = time.strftime("%Y%m%d-%H%M%S")
         experiment_id = f"{stamp}-{automator.split('-')[0]}-{uuid.uuid4().hex[:6]}"
         folder = self.root / experiment_id
         folder.mkdir(parents=True)
         _write(folder / "experiment.json", {"id": experiment_id, "name": name or experiment_id, "automator": automator,
                                             "train": train, "test": test, "state": "preparing", "created": _now()})
+        where = {"folder": str(folder), "folder_host": paths.to_host(folder)}
+        extra = {"automator": automator, **where, **({"detected": detected} if detected else {})}
         try:
             prepared = self.worker("prepare", timeout=3600, experiment=str(folder))
         except WorkerError as e:
             self._save(experiment_id, state="invalid", errors=[str(e)])
             return {"experiment_id": experiment_id, "state": "invalid", "errors": [str(e)], "warnings": [],
-                    "summary": {}, "default_config": None}
+                    "summary": {}, "default_config": None, **extra}
         state = "invalid" if prepared["errors"] else "ready"
         self._save(experiment_id, state=state, errors=prepared["errors"], warnings=prepared["warnings"],
                    sources=prepared["sources"], default_config=prepared["default_config"])
         return {"experiment_id": experiment_id, "state": state, "errors": prepared["errors"],
-                "warnings": prepared["warnings"], "summary": prepared["summary"], "default_config": prepared["default_config"]}
+                "warnings": prepared["warnings"], "summary": prepared["summary"], "default_config": prepared["default_config"],
+                **extra}
 
     def start(self, experiment_id, config=None, dry_run=False):
         meta = self.meta(experiment_id)
@@ -169,9 +238,12 @@ class Experiments:
                 shutil.rmtree(path, ignore_errors=True)
             elif path.exists():
                 path.unlink()
-        meta = self._save(experiment_id, state="queued", config=config or {}, params=configured["params"],
-                          model_names=configured["model_names"], queued=_now(), started=None, finished=None,
-                          message="", pid=None)
+        with self._lock:
+            if self.meta(experiment_id)["state"] in ACTIVE:
+                raise ValueError(f"Experiment {experiment_id} was started by another session.")
+            meta = self._save(experiment_id, state="queued", config=config or {}, params=configured["params"],
+                              model_names=configured["model_names"], queued=_now(), started=None, finished=None,
+                              message="", pid=None)
         return {"experiment_id": experiment_id, "state": "queued", "models": configured["model_names"],
                 "queue_position": self._position(experiment_id), "params": configured["params"]}
 
@@ -243,6 +315,7 @@ class Experiments:
                 out[key] = status[key]
         out["log_tail"] = self.log(experiment_id, log_lines)["lines"] if (folder / "run.log").exists() else []
         out["results_available"] = (folder / "results.json").exists()
+        out["folder"], out["folder_host"] = str(folder), paths.to_host(folder)
         return out
 
     def log(self, experiment_id, tail=200):
@@ -263,6 +336,8 @@ class Experiments:
             data = self.worker("results", experiment=str(folder))
         data["state"], data["message"] = meta["state"], meta.get("message", "")
         data["experiment_id"] = experiment_id
+        data["materials"] = str(folder / "Materials")
+        data["materials_host"] = paths.to_host(folder / "Materials")
         return data
 
     def file_path(self, experiment_id, relative):
@@ -281,6 +356,10 @@ class Experiments:
     # ---- scheduling -----------------------------------------------------------------------
     def _recover(self):
         """Runs that were going when the server stopped: still alive (another server process) or lost."""
+        with self._lock:
+            self._recover_locked()
+
+    def _recover_locked(self):
         for meta in self._all():
             if meta["state"] == "running" and not _alive(meta.get("pid")):
                 status = _read(self.root / meta["id"] / "status.json", {})
@@ -309,24 +388,31 @@ class Experiments:
         self._save(experiment_id, state=state, finished=_now(), message=message)
 
     def tick(self):
-        with self._lock:
-            running = 0
-            for meta in self._all():
-                if meta["state"] != "running":
-                    continue
-                proc = self._procs.get(meta["id"])
-                done = proc.poll() is not None if proc is not None else not _alive(meta.get("pid"))
-                if done:
-                    self._procs.pop(meta["id"], None)
-                    self._finished(meta["id"])
-                else:
-                    running += 1
-            queued = sorted((m for m in self._all() if m["state"] == "queued"), key=lambda m: m.get("queued") or "")
-            for meta in queued[:max(0, self.max_parallel - running)]:
-                try:
-                    self._launch(meta)
-                except Exception as e:
-                    self._save(meta["id"], state="failed", finished=_now(), message=f"The run could not start: {e}")
+        if not self._lock.acquire(blocking=False):
+            return  # another server process of the workspace is scheduling
+        try:
+            self._tick_locked()
+        finally:
+            self._lock.release()
+
+    def _tick_locked(self):
+        running = 0
+        for meta in self._all():
+            if meta["state"] != "running":
+                continue
+            proc = self._procs.get(meta["id"])
+            done = proc.poll() is not None if proc is not None else not _alive(meta.get("pid"))
+            if done:
+                self._procs.pop(meta["id"], None)
+                self._finished(meta["id"])
+            else:
+                running += 1
+        queued = sorted((m for m in self._all() if m["state"] == "queued"), key=lambda m: m.get("queued") or "")
+        for meta in queued[:max(0, self.max_parallel - running)]:
+            try:
+                self._launch(meta)
+            except Exception as e:
+                self._save(meta["id"], state="failed", finished=_now(), message=f"The run could not start: {e}")
 
     def _schedule(self):
         while not self._stop.is_set():

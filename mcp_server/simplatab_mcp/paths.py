@@ -42,11 +42,63 @@ def uploads_dir():
     return path
 
 
+def data_dir():
+    return Path(os.environ.get("SIMPLATAB_DATA_DIR", "/data"))
+
+
 def data_roots():
     """Folders data paths may be given relative to, in order: SIMPLATAB_DATA_DIR (default /data,
     the mounted data volume of the Docker image), the uploads and the workspace."""
-    roots = [Path(os.environ.get("SIMPLATAB_DATA_DIR", "/data")), uploads_dir(), workspace()]
+    roots = [data_dir(), uploads_dir(), workspace()]
     return [r for r in roots if r.is_dir()]
+
+
+# ---- host <-> container paths -------------------------------------------------------------
+# In Docker, agents on the host know host paths (/home/me/study/Train.csv), the server sees the
+# mounted folders (/data/Train.csv). SIMPLATAB_HOST_DATA_DIR and SIMPLATAB_HOST_WORKSPACE_DIR give the
+# host folders mounted on the data folder and the workspace: paths are translated both ways.
+
+def _norm(path):
+    text = str(path).replace("\\", "/")
+    return text.rstrip("/") if len(text) > 1 else text
+
+
+def _mounts():
+    pairs = []
+    for variable, inside in (("SIMPLATAB_HOST_WORKSPACE_DIR", lambda: workspace()), ("SIMPLATAB_HOST_DATA_DIR", data_dir)):
+        host = os.environ.get(variable)
+        if host:
+            pairs.append((_norm(host), _norm(inside())))
+    return pairs
+
+
+def _replace_prefix(text, old, new, case_insensitive):
+    a, b = (text.lower(), old.lower()) if case_insensitive else (text, old)
+    if a == b or a.startswith(b + "/"):
+        return new + text[len(old):]
+    return None
+
+
+def to_container(value):
+    """A host path of a mounted folder as the server sees it (other paths unchanged)."""
+    text = _norm(os.path.expanduser(str(value)))
+    for host, inside in _mounts():
+        replaced = _replace_prefix(text, host, inside, case_insensitive=":" in host[:3])  # Windows drive letters
+        if replaced is not None:
+            return replaced
+    return str(value)
+
+
+def to_host(path):
+    """A path of the server as the host sees it (None when it is not in a mounted folder)."""
+    if not _mounts():
+        return None
+    text = _norm(path)
+    for host, inside in _mounts():
+        replaced = _replace_prefix(text, inside, host, case_insensitive=False)
+        if replaced is not None:
+            return replaced
+    return None
 
 
 def _allowed(path):
@@ -59,7 +111,7 @@ def _allowed(path):
 
 def resolve_data_path(value):
     """An existing file or folder from an absolute path, or a path relative to a data root."""
-    path = Path(os.path.expanduser(str(value)))
+    path = Path(to_container(value))
     if path.is_absolute():
         if not path.exists():
             raise FileNotFoundError(f"{value} does not exist (inside the server: mount it, or upload it with upload_file).")

@@ -1,0 +1,15 @@
+# NVIDIA GPU for the Simplatab MCP server (NVIDIA driver and Container Toolkit on the host):
+#   docker compose -f mcp_server/compose.yaml -f mcp_server/compose.gpu.yaml up -d --build
+services:
+  simplatab-mcp:
+    build:
+      args:
+        DEVICE: gpu
+    image: simplatab-mcp:gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

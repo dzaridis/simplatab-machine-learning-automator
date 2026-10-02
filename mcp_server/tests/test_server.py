@@ -161,6 +161,100 @@ class TestServer(unittest.TestCase):
             self.assertEqual(_data(await client.call_tool("list_experiments", {}))["experiments"], [])
         self.session(steps)
 
+    def test_inspect_and_auto(self):
+        async def steps(client):
+            example = _data(await client.call_tool("get_example_data", {"automator": "tabular"}))
+            found = _data(await client.call_tool("inspect_data", {"train": example["train"]}))
+            self.assertEqual(found["suggested_automator"], "tabular")
+            # A wrong configuration: the experiment is created (data fine) and the error names the field
+            run = _data(await client.call_tool("run_experiment", {"automator": "auto", "train": example["train"],
+                                                                  "test": example["test"], "config": {"models": ["gbm"]}}))
+            self.assertEqual((run["automator"], run["state"]), ("tabular", "ready"))
+            self.assertIn("Unknown model", run["config_error"])
+            started = _data(await client.call_tool("start_experiment", {
+                "experiment_id": run["experiment_id"],
+                "config": {"models": ["logistic_regression"], "k_folds": 2, "hyperparameter_search": "none"}}))
+            status = await self.wait(client, started["experiment_id"])
+            self.assertEqual(status["state"], "completed", status)
+            nothing = _data(await client.call_tool("create_experiment", {"automator": "auto", "train": "nothing.csv",
+                                                                         "test": "nothing.csv"}))
+            self.assertEqual(nothing["state"], "invalid")
+            self.assertIn("nothing.csv was not found", nothing["errors"][0])
+        self.session(steps)
+
+
+@unittest.skipIf(Client is None, "the MCP SDK (Python >= 3.10) is not installed")
+class TestSharedWorkspace(unittest.TestCase):
+    def test_two_servers_start_a_queued_run_once(self):
+        import threading
+        from simplatab_mcp.jobs import Experiments
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["SIMPLATAB_WORKSPACE"] = tmp
+            self.addCleanup(os.environ.pop, "SIMPLATAB_WORKSPACE", None)
+            servers = [Experiments(worker_python=sys.executable) for _ in range(2)]
+            for server in servers:  # stop the schedulers: the test drives the ticks
+                server.close()
+                server._thread.join()
+            folder = Path(tmp) / "experiments" / "e1"
+            folder.mkdir(parents=True)
+            (folder / "experiment.json").write_text(json.dumps({"id": "e1", "automator": "tabular", "state": "queued",
+                                                                 "queued": "1"}))
+            launched = []
+
+            def launch(server):
+                def fake(meta):
+                    time.sleep(0.3)  # the other server ticks meanwhile
+                    launched.append(meta["id"])
+                    server._save(meta["id"], state="running", pid=os.getpid())
+                return fake
+            for server in servers:
+                server._launch = launch(server)
+            threads = [threading.Thread(target=server.tick) for server in servers for _ in range(3)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            self.assertEqual(launched, ["e1"])
+
+
+EXAMPLES = [("tabular", "2d"), ("time-series-forecasting", "2d"), ("image-classification", "2d"),
+            ("image-classification", "3d"), ("object-detection", "2d"), ("object-detection", "3d"),
+            ("image-segmentation", "2d"), ("image-segmentation", "3d")]
+
+
+@unittest.skipIf(Client is None, "the MCP SDK (Python >= 3.10) is not installed")
+@unittest.skipUnless(os.environ.get("SIMPLATAB_MCP_ALL") == "1", "SIMPLATAB_MCP_ALL=1 runs every automator (about 15-20 min on a CPU)")
+class TestEveryAutomator(TestServer):
+    """What an agent does with each automator: example data, automator chosen from the data, a run with the
+    quick configuration, and the results."""
+
+    def test_every_automator_end_to_end(self):
+        async def steps(client):
+            report = []
+            for automator, variant in EXAMPLES:
+                example = _data(await client.call_tool("get_example_data", {"automator": automator, "variant": variant}))
+                run = _data(await client.call_tool("run_experiment", {"automator": "auto", "train": example["train"],
+                                                                      "test": example["test"], "config": example["quick_config"]}))
+                self.assertEqual(run.get("automator"), automator, run)
+                self.assertEqual(run["state"], "queued", run)
+                status = await self.wait(client, run["experiment_id"], timeout=3600)
+                self.assertEqual(status["state"], "completed", (automator, variant, status.get("message"), status.get("log_tail")))
+                results = _data(await client.call_tool("get_results", {"experiment_id": run["experiment_id"]}))
+                self.assertTrue(results["test_metrics"], automator)
+                self.assertTrue(results["validation_metrics"], automator)
+                self.assertTrue(results["best_model"], automator)
+                self.assertTrue(results["models"], automator)
+                self.assertTrue(results["splits"] and results["splits"]["folds"], automator)
+                splits = await client.call_tool("read_result_file", {"experiment_id": run["experiment_id"],
+                                                                     "path": "Splits/splits.csv"})
+                self.assertTrue(splits.content[0].text.startswith("fold,set,id"))
+                report.append((automator, variant, results["best_model"], status.get("elapsed_seconds")))
+            print("\n".join(f"{a} {v}: best {b} in {t} s" for a, v, b, t in report))
+        self.session(steps)
+
+    # the other tests of TestServer run in their own class
+    test_discovery = test_upload_errors_and_dry_run = test_full_tabular_experiment = test_inspect_and_auto = None
+
 
 if __name__ == "__main__":
     unittest.main()

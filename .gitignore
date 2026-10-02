@@ -189,3 +189,8 @@ Example/DummyExamples/Test.csv
 # Example data of the time series forecasting automator
 !Examples/time-series-forecasting/Train.csv
 !Examples/time-series-forecasting/Test.csv
+
+# MCP server: local data, experiments and settings (mcp_server/compose.yaml)
+mcp_server/data/
+mcp_server/workspace/
+mcp_server/.env

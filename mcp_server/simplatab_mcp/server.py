@@ -24,10 +24,12 @@ validation, evaluates them on an external test set, explains them, and exports t
 validation splits.
 
 Workflow:
-1. list_automators, then get_data_contract(automator): the data layout, formats, rules, the configuration
-   fields with their defaults, and the models. Use get_example_data to get a ready-made dataset.
+1. Which automator: inspect_data(train) suggests it from the data (or pass automator="auto" to
+   create_experiment / run_experiment). get_data_contract(automator) gives the data layout, formats, rules,
+   the configuration fields with their defaults, and the models. get_example_data gives a ready-made dataset.
 2. Make the data readable by the server: a path inside the server (e.g. /data/... when the Docker image
-   mounts a folder on /data) or upload_file (base64, in chunks for large files).
+   mounts a folder on /data; host paths of the mounted folders are translated) or upload_file (base64, in
+   chunks for large files).
 3. create_experiment(automator, train, test): checks the data like the Simplatab web upload and returns a
    summary, errors, warnings and the default configuration. Fix the data if there are errors.
 4. start_experiment(experiment_id, config): fields left out keep their defaults; dry_run=true only validates.
@@ -44,7 +46,9 @@ def _error(e):
     return ToolError(message)
 
 
-def _check_automator(automator):
+def _check_automator(automator, auto=False):
+    if auto and automator == "auto":
+        return
     if automator not in AUTOMATORS:
         raise ToolError(f"Unknown automator {automator!r}: one of {', '.join(AUTOMATORS)}.")
 
@@ -124,15 +128,27 @@ def create_server(experiments=None):
             f.write(data)
         return {"path": str(path), "size": path.stat().st_size, "appended": append}
 
+    @server.tool()
+    def inspect_data(train: str) -> dict[str, Any]:
+        """Suggests the automator for a dataset from a quick look at the training data (CSV columns, or the
+        folders and files of a zip or folder, e.g. class folders, images/ + masks/, COCO or YOLO annotations):
+        suggested_automator, ranked candidates with the reason, and what was seen. Then read the contract of
+        the suggested automator, or create the experiment with automator="auto"."""
+        try:
+            return ex().inspect(train)
+        except WorkerError as e:
+            raise _error(e)
+
     # ---- experiments ----------------------------------------------------------------------
     @server.tool()
     def create_experiment(automator: str, train: str, test: str, name: Optional[str] = None) -> dict[str, Any]:
         """Creates an experiment from training and test data and checks them against the automator's contract.
         train and test: paths readable by the server (absolute, or relative to /data, the uploads or the
         workspace): CSV files (tabular, time-series-forecasting), or zip files or folders (image automators).
-        Returns experiment_id, state (ready or invalid), errors, warnings, the data summary (classes, columns,
-        series, counts...) and default_config."""
-        _check_automator(automator)
+        automator: an automator id, or "auto" to choose it from the data (as inspect_data).
+        Returns experiment_id, state (ready or invalid), the automator, errors, warnings, the data summary
+        (classes, columns, series, counts...), default_config and the experiment folder."""
+        _check_automator(automator, auto=True)
         try:
             return ex().create(automator, train, test, name)
         except (WorkerError, OSError) as e:
@@ -151,13 +167,18 @@ def create_server(experiments=None):
     @server.tool()
     def run_experiment(automator: str, train: str, test: str, config: Optional[dict] = None,
                        name: Optional[str] = None) -> dict[str, Any]:
-        """create_experiment and start_experiment in one call. If the data has errors, nothing runs and the
-        errors are returned."""
+        """create_experiment and start_experiment in one call (automator may be "auto"). If the data has errors,
+        nothing runs and the errors are returned; if the configuration is invalid, the experiment stays ready
+        and the error says which field to fix (then call start_experiment)."""
         created = create_experiment(automator, train, test, name)
         if created["state"] != "ready":
             return created
-        started = start_experiment(created["experiment_id"], config)
-        return {**started, "warnings": created["warnings"], "summary": created["summary"]}
+        try:
+            started = start_experiment(created["experiment_id"], config)
+        except ToolError as e:  # the data is fine: the agent fixes the configuration and calls start_experiment
+            return {**created, "config_error": str(e)}
+        return {**started, "automator": created["automator"], "warnings": created["warnings"],
+                "summary": created["summary"], "folder_host": created.get("folder_host")}
 
     @server.tool()
     def get_experiment(experiment_id: str, log_lines: int = 20) -> dict[str, Any]:
@@ -214,8 +235,9 @@ def create_server(experiments=None):
             return text if len(text) <= max_chars else text[:max_chars] + f"\n... (truncated, {size} bytes)"
         if suffix == ".xlsx":
             return f"{path}: an Excel table; its content is returned by get_results (test_metrics, validation_metrics)."
-        return (f"{path}: binary file of {size} bytes, at {target} on the server (a trained model or archive). "
-                "Mount the workspace to copy it, or use it from the experiment folder.")
+        host = paths.to_host(target)
+        return (f"{path}: binary file of {size} bytes (a trained model or archive), at {target} on the server"
+                + (f" and {host} on the host." if host else ". Mount the workspace on the host to use it."))
 
     @server.tool()
     def cancel_experiment(experiment_id: str) -> dict[str, Any]:
@@ -232,6 +254,22 @@ def create_server(experiments=None):
             return ex().delete(experiment_id)
         except (KeyError, ValueError) as e:
             raise _error(e)
+
+    # ---- prompts --------------------------------------------------------------------------
+    @server.prompt()
+    def run_simplatab_experiment(train: str, test: str, goal: str = "") -> str:
+        """Instructions for an agent to run a complete Simplatab experiment on a dataset."""
+        return (f"Run a Simplatab experiment on the training data {train} and the test data {test}."
+                + (f" Goal: {goal}." if goal else "") +
+                "\n1. Call inspect_data on the training data and read the data contract of the suggested automator "
+                "(get_data_contract). If the data does not follow the contract, explain what to change and stop."
+                "\n2. Call get_server_info: on a CPU prefer fast settings (feature extraction, hold-out validation, "
+                "light networks, fewer epochs); with a GPU the defaults are fine."
+                "\n3. Call create_experiment, fix any error, then start_experiment with a configuration suited to the "
+                "goal (dry_run first if unsure)."
+                "\n4. Poll get_experiment every minute until it is completed, failed or cancelled."
+                "\n5. Call get_results and report the test metrics of every model, the best model, the validation "
+                "splits and where the trained models are; read the main figures with read_result_file.")
 
     # ---- resources ------------------------------------------------------------------------
     @server.resource("simplatab://automators", mime_type="application/json",

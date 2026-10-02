@@ -1,0 +1,30 @@
+# The Simplatab MCP server on this computer, running in the background:
+#   cp mcp_server/.env.example mcp_server/.env      # then set the folders in it
+#   docker compose -f mcp_server/compose.yaml up -d --build
+#   GPU: docker compose -f mcp_server/compose.yaml -f mcp_server/compose.gpu.yaml up -d --build
+# Agents connect to http://localhost:8000/mcp, or over stdio with
+#   docker exec -i simplatab-mcp /opt/mcp/bin/python -m simplatab_mcp
+# Runs continue when an agent disconnects; the experiments are kept in SIMPLATAB_OUTPUT.
+services:
+  simplatab-mcp:
+    build:
+      context: ..
+      dockerfile: mcp_server/Dockerfile
+      args:
+        DEVICE: cpu
+    image: simplatab-mcp:latest
+    container_name: simplatab-mcp
+    init: true                      # reaps the worker processes of finished runs
+    restart: unless-stopped
+    command: ["--transport", "http", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:${SIMPLATAB_MCP_PORT:-8000}:8000"   # this computer only
+    shm_size: 4gb
+    volumes:
+      - ${SIMPLATAB_DATA:-./data}:/data                 # your datasets
+      - ${SIMPLATAB_OUTPUT:-./workspace}:/workspace     # experiments, trained models, uploads
+    environment:
+      # host folders of the mounts: agents may give host paths, results also give host paths
+      SIMPLATAB_HOST_DATA_DIR: ${SIMPLATAB_DATA:-}
+      SIMPLATAB_HOST_WORKSPACE_DIR: ${SIMPLATAB_OUTPUT:-}
+      SIMPLATAB_MAX_PARALLEL: ${SIMPLATAB_MAX_PARALLEL:-1}
