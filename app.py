@@ -32,6 +32,8 @@ from Helpers.image3d.volumes import SHAPES as VOLUME_SHAPES, CROPS as VOLUME_CRO
 from Helpers.forecasting import data as forecast_data
 from Helpers.forecasting.models import MODELS as FORECAST_MODELS
 from Helpers.clustering import data as clustering_data
+from Helpers.survival import data as survival_data
+from Helpers.survival.models import MODELS as SURVIVAL_MODELS, FAMILIES as SURVIVAL_FAMILIES
 from Helpers.clustering.models import ALGORITHMS as CLUSTERING_ALGORITHMS, FAMILIES as CLUSTERING_FAMILIES
 from Helpers.clustering.metrics import INTERNAL as CLUSTER_INTERNAL, EXTERNAL as CLUSTER_EXTERNAL, \
     COUNTS as CLUSTER_COUNTS, STABILITY as CLUSTER_STABILITY, LOWER_IS_BETTER as CLUSTER_LOWER
@@ -42,7 +44,7 @@ from Helpers.detection.models import DETECTORS, BY_KEY as DETECTORS_BY_KEY
 from Helpers.detection.metrics import MAIN_IOU
 from web.catalog import AUTOMATORS, MODELS, THRESHOLD_METRICS, get_automator
 from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES, DETECTION_PHASES, SEGMENTATION_PHASES, \
-    CLUSTERING_PHASES
+    CLUSTERING_PHASES, SURVIVAL_PHASES
 
 # Set in the Docker image by the release CI (same as the image and release tags)
 APP_VERSION = os.environ.get("SIMPLATAB_VERSION", "dev")
@@ -79,6 +81,9 @@ FORECAST_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)
 # Clustering automator: Train.csv, the optional Test.csv, their summary and the run parameters
 CLUSTERING_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_clustering')
 CLUSTERING_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "clustering")
+# Survival analysis automator: Train.csv, Test.csv, their summary and the run parameters
+SURVIVAL_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_survival')
+SURVIVAL_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "survival")
 
 # Configure upload settings
 ALLOWED_EXTENSIONS = {'csv'}
@@ -1109,6 +1114,126 @@ def clustering_parameters():
 
 
 # ---------------------------------------------------------------------------
+# Survival analysis automator: upload -> parameters -> run -> results
+# ---------------------------------------------------------------------------
+
+def survival_summary():
+    path = os.path.join(SURVIVAL_INPUT_FOLDER, "summary.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+@app.route('/survival')
+def survival():
+    return render_template('survival/upload.html', automator=get_automator("survival-analysis"))
+
+
+@app.route('/survival/example/<name>')
+def survival_example(name):
+    if name not in ("Train.csv", "Test.csv"):
+        abort(404)
+    return send_from_directory(SURVIVAL_EXAMPLE_FOLDER, name, as_attachment=True)
+
+
+@app.route('/survival/upload', methods=['POST'])
+def survival_upload():
+    if job.running:
+        flash('A pipeline is already running. Wait for it to finish before uploading new data.', 'warning')
+        return redirect(url_for('run'))
+    if (request.content_length or 0) > TABULAR_MAX_BYTES:
+        flash('The files are too large: at most 50 MB per upload.', 'danger')
+        return redirect(url_for('survival'))
+    files = {name: request.files.get(field) for name, field in (("Train.csv", "train_file"), ("Test.csv", "test_file"))}
+    if not all(f and f.filename for f in files.values()):
+        flash('Add both Train.csv and Test.csv.', 'danger')
+        return redirect(url_for('survival'))
+    if not all(allowed_file(f.filename) for f in files.values()):
+        flash('Invalid file type. Only CSV files are allowed.', 'danger')
+        return redirect(url_for('survival'))
+    shutil.rmtree(SURVIVAL_INPUT_FOLDER, ignore_errors=True)
+    os.makedirs(SURVIVAL_INPUT_FOLDER)
+    for name, upload in files.items():
+        upload.save(os.path.join(SURVIVAL_INPUT_FOLDER, name))
+    summary = survival_data.summarize(os.path.join(SURVIVAL_INPUT_FOLDER, "Train.csv"),
+                                      os.path.join(SURVIVAL_INPUT_FOLDER, "Test.csv"))
+    if summary["errors"]:
+        shutil.rmtree(SURVIVAL_INPUT_FOLDER, ignore_errors=True)
+        flash(" ".join(summary["errors"]), 'danger')
+        return redirect(url_for('survival'))
+    with open(os.path.join(SURVIVAL_INPUT_FOLDER, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    return redirect(url_for('survival_parameters'))
+
+
+def parse_horizons(text, summary):
+    """Horizons typed as "12, 24, 36": positive, within the follow-up, at most 5."""
+    if not (text or "").strip():
+        return list(summary["suggested_horizons"])
+    try:
+        values = sorted({float(v) for v in str(text).replace(";", ",").split(",") if v.strip()})
+    except ValueError:
+        raise ValueError('Horizons are numbers separated by commas, e.g. "12, 24, 36".')
+    if not values or len(values) > 5:
+        raise ValueError('Give between 1 and 5 horizons.')
+    if values[0] <= 0 or values[-1] >= summary["time_max"]:
+        raise ValueError(f'Horizons must be between 0 and the longest follow-up ({summary["time_max"]:g}).')
+    return values
+
+
+def survival_params_from_form(form, summary):
+    selected = [m.key for m in SURVIVAL_MODELS if form.get(m.key) == 'true']
+    if not selected:
+        raise ValueError('Select at least one model.')
+    metric = form.get('selection_metric', 'C-index')
+    if metric not in ('C-index', 'Uno C-index', 'IBS'):
+        raise ValueError('Invalid selection metric.')
+    features = summary["features"]
+    ignored = [c for i, c in enumerate(features) if form.get(f'ignore_{i}') == 'true']
+    if len(ignored) == len(features):
+        raise ValueError('Keep at least one feature.')
+    return {
+        "models": selected,
+        "k_folds": _bounded(form, 'k_folds', int, 2, summary["max_folds"], min(5, summary["max_folds"])),
+        "horizons": parse_horizons(form.get('horizons'), summary),
+        "selection_metric": metric,
+        "ignore_columns": ignored,
+        "penalty": _bounded(form, 'penalty', float, 0.0, 10.0, 0.01),
+        "epochs": _bounded(form, 'epochs', int, 20, 1000, 200),
+        "explain": form.get('explain') == 'true',
+        "seed": 42,
+    }
+
+
+@app.route('/survival/parameters', methods=['GET', 'POST'])
+def survival_parameters():
+    if job.running:
+        return redirect(url_for('run'))
+    summary = survival_summary()
+    if summary is None:
+        flash('Upload Train.csv and Test.csv first.', 'warning')
+        return redirect(url_for('survival'))
+    if request.method == 'POST':
+        try:
+            params = survival_params_from_form(request.form, summary)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(url_for('survival_parameters'))
+        with open(os.path.join(SURVIVAL_INPUT_FOLDER, "params.json"), "w") as f:
+            json.dump(params, f, indent=2)
+        clear_materials()
+        from Helpers.survival.pipeline import run_survival_pipeline
+        names = [m.name for m in SURVIVAL_MODELS if m.key in params["models"]]
+        if not job.start(lambda: run_survival_pipeline(SURVIVAL_INPUT_FOLDER, params), names,
+                         automator="survival-analysis", phases=SURVIVAL_PHASES, initial_phase="data"):
+            flash('A pipeline is already running.', 'warning')
+        return redirect(url_for('run'))
+    return render_template('survival/parameters.html', automator=get_automator("survival-analysis"), summary=summary,
+                           previous_results=has_results(), models=SURVIVAL_MODELS, families=SURVIVAL_FAMILIES)
+
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 
@@ -1338,6 +1463,65 @@ def _cluster_table(path, columns):
     rows = [{"model": model, "values": {m: (float(row[m]) if row[m] == row[m] else None) for m in columns},
              "best": {m: bool(m in best and row[m] == best[m]) for m in columns}} for model, row in table.iterrows()]
     return rows, columns
+
+
+def collect_survival_results(root):
+    """What the results page of the survival automator shows, read from the Materials folder."""
+    with open(os.path.join(root, "run_info.json")) as f:
+        info = json.load(f)
+    results = {"info": info, "automator": get_automator("survival-analysis"), "test": None, "kfold": None,
+               "columns": [], "best": None, "groups": {}, "explain": {}, "metric_plots": [], "models": [], "tables": [],
+               "files": [], "splits": collect_splits(root)}
+    for dirpath, _, filenames in os.walk(root):
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            results["files"].append({"path": _relative(path, root), "size": os.path.getsize(path)})
+    results["files"].sort(key=lambda f: f["path"])
+    lower = {"IBS"} | {f"Brier@{h:g}" for h in info.get("horizons", [])}
+    test_path = os.path.join(root, "test_results.xlsx")
+    if os.path.exists(test_path):
+        test = pd.read_excel(test_path, index_col=0)
+        results["columns"] = list(test.columns)
+        models = [m for m in test.index if m in info.get("models", {})]
+        best = {m: (test.loc[models, m].min() if m in lower else test.loc[models, m].max()) for m in test.columns} if models else {}
+        results["test"] = [{"model": model, "values": {m: float(row[m]) for m in test.columns},
+                            "best": {m: bool(model in models and row[m] == best.get(m)) for m in test.columns},
+                            "lower": lower} for model, row in test.iterrows()]
+        top = info.get("best_model")
+        if top in test.index:
+            results["best"] = {"model": top, "values": {m: float(test.loc[top, m]) for m in test.columns}}
+    kfold_path = os.path.join(root, info.get("validation_file", ""))
+    if info.get("validation_file") and os.path.exists(kfold_path):
+        kfold = pd.read_excel(kfold_path, index_col=0)
+        results["kfold"] = [{"model": model, "values": {m: str(row[m]) for m in kfold.columns}} for model, row in kfold.iterrows()]
+    for name, title in (("test_metrics.png", "Test metrics by model"), ("auc_over_time.png", "Time-dependent AUC"),
+                        ("brier_over_time.png", "Brier score over time")):
+        item = _figure(os.path.join(root, "Metrics_Plots", name), root, title)
+        if item:
+            results["metric_plots"].append(item)
+    for model, meta in info.get("models", {}).items():
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in model)
+        figures = [_figure(os.path.join(root, "Survival_Plots", f"{safe}_risk_groups.png"), root, f"{model}: risk groups"),
+                   _figure(os.path.join(root, "Survival_Plots", f"{safe}_patients.png"), root, f"{model}: predicted survival curves"),
+                   _figure(os.path.join(root, "Metrics_Plots", f"{safe}_calibration.png"), root, f"{model}: calibration")]
+        results["groups"][model] = {"figures": [f for f in figures if f], "logrank_p": meta.get("logrank_p")}
+        item = _figure(os.path.join(root, "Explainability", f"{safe}_importance.png"), root, f"{model}: permutation importance")
+        if item:
+            coef = os.path.join(root, "Explainability", f"{safe}_coefficients.csv")
+            item["coefficients"] = _relative(coef, root) if os.path.exists(coef) else None
+            results["explain"][model] = item
+        path = os.path.join(root, meta["file"])
+        if os.path.exists(path):
+            results["models"].append({"path": _relative(path, root), "name": model, "file": os.path.basename(path),
+                                      "size": os.path.getsize(path), "requirements": meta.get("requirements", [])})
+    for folder, name, title, description in (
+            ("Predictions", "test_predictions.csv", "Test predictions", "Risk score and survival probability at each horizon of every test patient, per model."),
+            ("Metrics_Plots", "validation_folds.csv", "Validation folds", "The metrics of every model on each held-out fold.")):
+        path = os.path.join(root, folder, name)
+        if os.path.exists(path):
+            results["tables"].append({"path": _relative(path, root), "name": title, "description": description,
+                                      "size": os.path.getsize(path)})
+    return results
 
 
 def collect_clustering_results(root):
@@ -1572,6 +1756,8 @@ def results():
         return render_template('detection/results.html', results=collect_detection_results(root))
     if _run_automator(root) == "image-segmentation":
         return render_template('segmentation/results.html', results=collect_segmentation_results(root))
+    if _run_automator(root) == "survival-analysis":
+        return render_template('survival/results.html', results=collect_survival_results(root))
     if _run_automator(root) == "clustering":
         return render_template('clustering/results.html', results=collect_clustering_results(root),
                                lower=CLUSTER_LOWER)

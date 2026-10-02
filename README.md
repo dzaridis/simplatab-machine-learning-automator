@@ -11,6 +11,7 @@ explains their predictions and gives you the trained models. Your data never lea
 | **3D Image Classification** (same automator) | `Train.zip`, `Test.zip` of studies with one or more series (DICOM series, NIfTI), e.g. T2 + ADC + DWI | 18 3D networks. Pretrained: MedicalNet ResNet-10/18/50, R3D-18, R(2+1)D-18, MC3-18, Video Swin-T, SwinUNETR Swin-ViT (self-supervised on CT), DINOv2-Small 2.5D. From scratch: MedNeXt-S, ConvNeXt V2 3D, 3D UX-Net, nnU-Net ResEnc-M, SwinUNETR-V2, ViT-Small 3D (UNETR), SEResNeXt-50 3D, EfficientNet-B0 3D, DenseNet-121 3D | 3D Grad-CAM |
 | **Time Series Forecasting** | `Train.csv`, `Test.csv` in long format (e.g. repeated measurements of patients), with static, past and future covariates | 10 [neuralforecast](https://github.com/Nixtla/neuralforecast) networks: NHITS, NBEATSx, TiDE, KAN, DLinear, TFT, PatchTST, BiTCN, TCN, TimesNet | Integrated gradients |
 | **Object Detection** | `Train.zip`, `Test.zip` of 2D images or 3D volumes (DICOM, NIfTI, PNG, JPEG, …) with boxes in COCO, YOLO, Pascal VOC, CSV or mask format | 10 pretrained detectors: Faster R-CNN v2, RetinaNet v2, FCOS, Faster R-CNN MobileNetV3, SSDLite (torchvision); RT-DETR, RT-DETRv2, D-FINE-M, Deformable DETR, Conditional DETR (transformers) | D-RISE |
+| **Survival Analysis** | `Train.csv`, `Test.csv` with `Time` (follow-up) and `Event` (1 event, 0 censored), e.g. overall survival or time to relapse | 8 time-to-event models: Cox PH, Weibull and log-normal AFT, XGBoost Cox and AFT, DeepSurv, DeepHit, Logistic-Hazard (Nnet-survival), with a Kaplan-Meier reference | Risk groups (Kaplan-Meier, log-rank), calibration, permutation importance, hazard ratios |
 | **Clustering** | `Train.csv` (and an optional `Test.csv`), with or without a `Target` column of class labels to check the clusters against | 12 classical (K-Means, Bisecting K-Means, Gaussian mixture, Dirichlet-process Bayesian mixture, Ward agglomerative, BIRCH, spectral clustering, affinity propagation, DBSCAN, HDBSCAN, OPTICS, Mean Shift) and 6 deep learning and neural (DEC, IDEC, DCN, VaDE, SCARF + k-means, self-organising map) | Cluster profiles, PCA/t-SNE maps, SHAP |
 | **Image Segmentation** | `Train.zip`, `Test.zip` of images and masks: 2D medical or everyday images (PNG, JPEG, DICOM, NIfTI, …), 3D volumes with one or more series (DICOM, NIfTI), or the nnU-Net raw format | 2D: the official **nnU-Net v2**, U-Net ResNet-34, U-Net++ EfficientNet-B4, DeepLabV3+ ResNet-50, FPN and UPerNet ConvNeXt-Tiny, SegFormer-B2, MA-Net ResNet-50 (pretrained), Attention U-Net, U-Net (nnU-Net-like). 3D: **nnU-Net v2** 3D full resolution, SwinUNETR (self-supervised on CT), SwinUNETR-V2, SegResNet, DynUNet, UNETR, MedNeXt-S, Attention U-Net, U-Net++, V-Net | Uncertainty maps (test-time augmentation) |
 
@@ -86,6 +87,11 @@ are forecast one after the other, each by a network trained on the points before
 lookback, learning rate and size on these windows). The final networks, trained on all the training series,
 forecast the last H points of every test series.
 
+Survival analysis uses **stratified K-fold cross-validation** on the event indicator (the preprocessing refitted in
+each fold) and the external test set, with censoring handled by inverse probability of censoring weights: Harrell's
+and Uno's C-index, integrated Brier score, and time-dependent AUC and Brier score at the horizons you choose. Test
+patients are split into risk groups by the tertiles of the training risks (Kaplan-Meier curves, log-rank test).
+
 Clustering has no training labels: every algorithm clusters Train.csv, its number of clusters given, set to the
 number of `Target` classes or chosen in a range by the silhouette (or Calinski-Harabasz, Davies-Bouldin); the
 algorithms that find it themselves (density-based, affinity propagation, Bayesian mixture) have their settings tuned
@@ -151,6 +157,11 @@ also be classified in 2D, one image per file). Layout: `<class>/<patient>/<study
 - Example data: [`Examples/time-series-forecasting`](Examples/time-series-forecasting) (daily glucose of 40 patients),
   also downloadable from the upload page.
 
+**Survival analysis**: two CSV files, one row per patient: `Time` (follow-up time, positive, any unit), `Event`
+(1 if the event happened at `Time`, 0 if censored), an optional `ID`, and the features (numeric or categorical;
+missing values imputed). At least 10 events. Example data: [`Examples/survival`](Examples/survival) (overall survival
+after colorectal cancer surgery).
+
 **Clustering**: one CSV file, `Train.csv`, one row per sample, and optionally a `Test.csv` with the same feature columns.
 - `ID` (or `patient_id`): optional identifier, never a feature. `Target`: optional class labels (numbers or text).
   With it, the clusters are evaluated against the classes (supervised evaluation) and the number of clusters can be
@@ -209,7 +220,7 @@ Everything is written to the `Materials` folder, shown on the results page and d
 | Validation splits: the samples of every fold (to reproduce the validation) | `Splits/splits.csv`, `Splits/splits.json` |
 | Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/`, `Detection_Curves/` (precision-recall, FROC, AP per class), `Segmentation_Plots/` |
 | Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images; 3D: the slices where the map is strongest), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps; clustering: SHAP of a random forest that recognises the clusters) |
-| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors, segmentation networks), `Models/<model>.zip` (forecasting, transformers detectors, nnU-Net model folders), `Models/<algorithm>.pkl` (clustering) |
+| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors, segmentation networks), `Models/<model>.zip` (forecasting, transformers detectors, nnU-Net model folders), `Models/<algorithm>.pkl` (clustering), `Models/<model>.pkl` (survival: `predict_risk`, `predict_survival`) |
 | Forecasts vs. observed values | `Forecasts/test_forecasts.csv`, `Forecasts/future_forecasts.csv` (beyond the data, without future covariates), `Forecast_Plots/` |
 | Clusters (clustering) | `Clusters/train_clusters.csv`, `test_clusters.csv` (cluster of every sample per algorithm; 0 the largest, -1 noise), `Cluster_Profiles/` (feature means per cluster), `Embeddings/` (PCA and t-SNE maps), `Metrics_Plots/` (clusters vs. classes, silhouettes, choice of k) |
 | Image predictions and classes | `Predictions/<network>_test_predictions.csv` (one row per image or 3D study), `classes.csv` |
@@ -429,7 +440,7 @@ python -m unittest discover tests
 ```
 Code layout: `app.py` (web app), `Helpers/` (tabular pipeline; `splits.py`: the validation splits of every automator), `Helpers/image/` (image pipeline),
 `Helpers/image3d/` (3D image pipeline),
-`Helpers/forecasting/` (forecasting pipeline), `Helpers/clustering/` (clustering pipeline), `Helpers/detection/` (object detection pipeline),
+`Helpers/forecasting/` (forecasting pipeline), `Helpers/clustering/` (clustering pipeline), `Helpers/survival/` (survival pipeline), `Helpers/detection/` (object detection pipeline),
 `Helpers/segmentation/` (segmentation pipeline; `nnunet_runner.py` runs nnU-Net in a separate process), `web/`
 (automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning),
 `mcp_server/` (MCP server, its Dockerfile and tests).

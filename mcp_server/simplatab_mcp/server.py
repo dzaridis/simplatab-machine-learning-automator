@@ -19,7 +19,8 @@ from .jobs import Experiments, WorkerError
 
 INSTRUCTIONS = """Simplatab runs validated machine learning experiments on research data: tabular classification,
 2D/3D image classification, 2D/3D object detection, 2D/3D image segmentation (incl. the official nnU-Net),
-time series forecasting and clustering of tabular data (unsupervised, or evaluated against labels). Each experiment trains several models with K-fold (or hold-out / rolling-origin)
+time series forecasting, survival analysis (time-to-event with censoring) and clustering of tabular data
+(unsupervised, or evaluated against labels). Each experiment trains several models with K-fold (or hold-out / rolling-origin)
 validation, evaluates them on an external test set, explains them, and exports the trained models and the
 validation splits.
 
@@ -145,7 +146,7 @@ def create_server(experiments=None):
     def create_experiment(automator: str, train: str, test: Optional[str] = None, name: Optional[str] = None) -> dict[str, Any]:
         """Creates an experiment from training and test data and checks them against the automator's contract.
         train and test: paths readable by the server (absolute, or relative to /data, the uploads or the
-        workspace): CSV files (tabular, time-series-forecasting, clustering), or zip files or folders (image
+        workspace): CSV files (tabular, time-series-forecasting, survival-analysis, clustering), or zip files or folders (image
         automators). test is required, except for clustering (optional: its samples are assigned to the clusters).
         automator: an automator id, or "auto" to choose it from the data (as inspect_data).
         Returns experiment_id, state (ready or invalid), the automator, errors, warnings, the data summary

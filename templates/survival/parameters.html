@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Configure · Survival Analysis{% endblock %}
+
+{% block content %}
+{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2, automator) }}
+
+<div class="container pb-4">
+    <form id="params-form" action="{{ url_for('survival_parameters') }}" method="post" novalidate data-time-max="{{ summary.time_max }}">
+        <div class="row g-4">
+            <div class="col-lg-8 order-2 order-lg-1">
+                {% if previous_results %}
+                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
+                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+                        <div><div class="fw-semibold">Starting this run replaces the previous results</div>
+                            <div class="small-muted">Download them first if you want to keep them.</div></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_all') }}">
+                        <i class="bi bi-file-earmark-zip me-1" aria-hidden="true"></i>Download previous results</a>
+                </div>
+                {% endif %}
+                {% if summary.warnings %}
+                <div class="alert alert-warning d-flex gap-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
+                    <div><div class="fw-semibold">Check your data</div>
+                        <ul class="mb-0 ps-3">{% for warning in summary.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-clock-history me-2 text-primary" aria-hidden="true"></i>Time horizons</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="horizons">Horizons</label></h2>
+                                <p class="help">Times at which survival is predicted and the time-dependent AUC and Brier score are reported (e.g. 12, 36, 60 months), in the unit of <code>Time</code>. The defaults are the quartiles of the event times.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="text" class="form-control" id="horizons" name="horizons" value="{% for h in summary.suggested_horizons %}{{ '%g' % h }}{{ ', ' if not loop.last }}{% endfor %}" aria-describedby="horizons-feedback">
+                                <div class="form-text" id="horizons-feedback">1 to 5 values below {{ '%g' % summary.time_max }} (the longest follow-up).</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-funnel me-2 text-primary" aria-hidden="true"></i>Features</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">Untick a column to leave it out. Numeric features are standardised, categorical ones one-hot encoded, missing values imputed (inside each fold).{% if summary.dropped %} Left out automatically: {% for item in summary.dropped %}{{ item.column }} ({{ item.reason }}){{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for column in summary.features %}
+                            <input type="checkbox" class="btn-check" id="use_{{ loop.index0 }}" data-column-index="{{ loop.index0 }}" checked autocomplete="off">
+                            <label class="btn btn-sm btn-outline-primary" for="use_{{ loop.index0 }}">{{ column }}{% if column in summary.categorical %} <span class="small-muted">· categorical</span>{% endif %}</label>
+                            <input type="hidden" name="ignore_{{ loop.index0 }}" value="false" id="ignore_{{ loop.index0 }}">
+                            {% endfor %}
+                        </div>
+                        <div class="invalid-feedback d-block mt-2 d-none" id="features-error" role="alert">Keep at least one column.</div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Models</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">All handle censored patients. A Kaplan-Meier curve (no covariates) is always added as the reference.</p>
+                        {% for family, title, subtitle in families %}
+                        <div class="{% if not loop.first %}mt-4{% endif %}">
+                            <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+                                <div><h2>{{ title }}</h2><p class="help">{{ subtitle }}</p></div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Select {{ title }}">
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ family }}" data-value="1">Select all</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ family }}" data-value="0">None</button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                {% for model in models if model.family == family %}
+                                <div class="col-md-6">
+                                    <label class="option-card">
+                                        <input type="checkbox" name="{{ model.key }}" value="true" data-group="{{ family }}" {% if model.default %}checked{% endif %}>
+                                        <span class="option-body">
+                                            <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                            <span><span class="title d-block">{{ model.name }}</span><span class="desc d-block">{{ model.description }}</span></span>
+                                        </span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one model.</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header py-3"><i class="bi bi-sliders me-2 text-primary" aria-hidden="true"></i>Validation and training</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="k_folds">K-fold cross-validation</label></h2>
+                                <p class="help">Folds stratified on the event indicator; every model and the preprocessing are refitted in each fold.</p>
+                            </div>
+                            <div class="col-md-5"><input type="number" class="form-control" id="k_folds" name="k_folds" value="{{ [5, summary.max_folds] | min }}" min="2" max="{{ summary.max_folds }}"></div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="selection_metric">Best model by</label></h2>
+                                <p class="help">Averaged over the validation folds. C-index: ranking of the patients; IBS: accuracy of the predicted survival probabilities (lower is better).</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="selection_metric" name="selection_metric">
+                                    <option value="C-index" selected>C-index (Harrell)</option>
+                                    <option value="Uno C-index">Uno's C-index</option>
+                                    <option value="IBS">Integrated Brier score</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label small fw-semibold" for="penalty">Ridge penalty (Cox, AFT)</label>
+                                <input type="number" class="form-control" id="penalty" name="penalty" value="0.01" min="0" max="10" step="0.01">
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label small fw-semibold" for="epochs">Network epochs (early stopping)</label>
+                                <input type="number" class="form-control" id="epochs" name="epochs" value="200" min="20" max="1000">
+                            </div>
+                        </div>
+                        <div class="form-check form-switch mt-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="explain" name="explain" value="true" checked>
+                            <label class="form-check-label" for="explain">Permutation importance <span class="small-muted">: how much the test C-index drops when each feature is shuffled</span></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 order-1 order-lg-2">
+                <div class="card p-4" style="position: sticky; top: 5.5rem;">
+                    <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
+                    <div class="row g-2 mb-3 text-center">
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_rows }}</div><div class="small-muted">patients</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.events }}</div><div class="small-muted">events</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.censoring_rate }}%</div><div class="small-muted">censored</div></div></div>
+                    </div>
+                    <dl class="row small mb-3">
+                        <dt class="col-6 fw-normal small-muted">Median survival</dt><dd class="col-6 tabular-nums mb-1">{{ '%g' % summary.median_survival if summary.median_survival else 'not reached' }}</dd>
+                        <dt class="col-6 fw-normal small-muted">Median follow-up</dt><dd class="col-6 tabular-nums mb-1">{{ '%g' % summary.median_follow_up if summary.median_follow_up else '–' }}</dd>
+                        <dt class="col-6 fw-normal small-muted">Follow-up range</dt><dd class="col-6 tabular-nums mb-1">{{ '%g' % summary.time_min }}–{{ '%g' % summary.time_max }}</dd>
+                        <dt class="col-6 fw-normal small-muted">Test.csv</dt><dd class="col-6 tabular-nums mb-1">{{ summary.test_rows }} patients</dd>
+                        <dt class="col-6 fw-normal small-muted">Features</dt><dd class="col-6 mb-1">{{ summary.numeric | length }} numeric, {{ summary.categorical | length }} categorical</dd>
+                    </dl>
+                    <a class="small" href="{{ url_for('survival') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <div class="container px-0 d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between">
+                <div class="small-muted d-none d-sm-block" id="run-summary" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary btn-lg" id="run-btn"><i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run pipeline</button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/survival_parameters.js') }}"></script>
+{% endblock %}

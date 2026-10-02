@@ -76,6 +76,7 @@ class TestContracts(unittest.TestCase):
         self.assertTrue({"nnunet_2d", "unet_resnet34"} <= {m["key"] for m in contracts.models("image-segmentation", 2)})
         self.assertTrue({"nnunet_3d", "segresnet"} <= {m["key"] for m in contracts.models("image-segmentation", 3)})
         self.assertTrue(set(QUICK["clustering"]["models"]) <= {m["key"] for m in contracts.models("clustering")})
+        self.assertTrue(set(QUICK["survival-analysis"]["models"]) <= {m["key"] for m in contracts.models("survival-analysis")})
 
 
 class TestConfigs(unittest.TestCase):
@@ -183,7 +184,7 @@ class TestData(Workspace):
 EXAMPLES = [("tabular", "2d"), ("time-series-forecasting", "2d"), ("image-classification", "2d"),
             ("image-classification", "3d"), ("object-detection", "2d"), ("object-detection", "3d"),
             ("image-segmentation", "2d"), ("image-segmentation", "3d"), ("clustering", "labeled"),
-            ("clustering", "unlabeled")]
+            ("clustering", "unlabeled"), ("survival-analysis", "2d")]
 
 
 class TestDetect(Workspace):
