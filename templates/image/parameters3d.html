@@ -1,29 +1,17 @@
 {% extends "base.html" %}
 {% from "_macros.html" import page_header %}
-{% block title %}Configure · Image Classification{% endblock %}
+{% block title %}Configure · 3D Image Classification{% endblock %}
 
 {% block content %}
-{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2, automator) }}
+{{ page_header("Configure the pipeline", "Your data hold 3D studies: each study is classified from its volumes. The defaults are a good starting point.", 2, automator) }}
 {% set binary = summary.classes | length == 2 %}
-{% set medical = summary.kinds.get('dicom') or summary.kinds.get('nifti') %}
+{% set max_folds = [20, summary.min_class_patients] | min %}
 
 <div class="container pb-4">
     <form id="params-form" action="{{ url_for('image_parameters') }}" method="post" novalidate>
-        <input type="hidden" name="dim" value="2">
+        <input type="hidden" name="dim" value="3">
         <div class="row g-4">
             <div class="col-lg-8 order-2 order-lg-1">
-                {% if volumes3d %}
-                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
-                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
-                    <div class="d-flex gap-3">
-                        <i class="bi bi-badge-3d text-primary fs-5" aria-hidden="true"></i>
-                        <div><div class="fw-semibold">2D mode: every image file is a sample</div>
-                            <div class="small-muted">Your data hold volumes; each slice file and each volume (reduced to one slice) is classified on its own.</div></div>
-                    </div>
-                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('image_parameters', dim=3) }}">
-                        <i class="bi bi-box me-1" aria-hidden="true"></i>Classify 3D studies instead</a>
-                </div>
-                {% endif %}
                 {% if previous_results %}
                 <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
                      style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
@@ -46,12 +34,54 @@
                 {% endif %}
 
                 <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-layers me-2 text-primary" aria-hidden="true"></i>Series</div>
+                    <div class="settings-section">
+                        {% if summary.single_series %}
+                        <h2 class="mb-1">One series per study</h2>
+                        <p class="help mb-0">Each study holds a single volume, used as the only input channel of the networks.</p>
+                        {% else %}
+                        <h2 class="mb-1">Series used as input channels</h2>
+                        <p class="help mb-3">Series are matched by their folder or file name in every study. The chosen series are aligned in patient coordinates on the reference series (resampled onto its grid) and stacked as channels, as for multi-parametric MRI. Studies missing a chosen series are skipped.</p>
+                        <div class="table-responsive mb-3">
+                            <table class="table metric-table mb-0" aria-describedby="series-help">
+                                <thead><tr><th scope="col">Use</th><th scope="col">Series</th><th scope="col">Train studies</th><th scope="col">Test studies</th></tr></thead>
+                                <tbody>
+                                    {% for row in summary.series %}
+                                    <tr>
+                                        <td><input class="form-check-input" type="checkbox" name="channels" value="{{ row.name }}" id="series-{{ loop.index }}"
+                                                   data-series {% if row.name in summary.default_channels %}checked{% endif %}></td>
+                                        <td><label class="fw-semibold" for="series-{{ loop.index }}">{{ row.name }}</label></td>
+                                        <td class="tabular-nums">{{ row.train }} / {{ summary.train_studies }}</td>
+                                        <td class="tabular-nums">{{ row.test }} / {{ summary.test_studies }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="reference">Reference series</label></h2>
+                                <p class="help" id="series-help">Defines the grid (orientation, field of view, resolution) of the input; usually the series with the finest resolution, e.g. T2.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="reference" name="reference">
+                                    {% for row in summary.series %}<option value="{{ row.name }}" {% if summary.default_channels and row.name == summary.default_channels[0] %}selected{% endif %}>{{ row.name }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="invalid-feedback d-block mt-2 d-none" id="series-error" role="alert">Select at least one series.</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="card mb-4">
                     <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Networks</div>
                     <div class="settings-section">
-                        <p class="help mt-0 mb-3">All networks are pretrained on millions of images and adapted to yours. Selecting several lets you compare them on the same folds.</p>
-                        {% for group, title, subtitle in [
-                            ("cnn", "Convolutional networks", "Learn local patterns (edges, textures, shapes); robust with small datasets."),
-                            ("transformer", "Vision transformers", "Relate distant image regions with attention; strongest with more data or self-supervised pretraining."),
+                        <p class="help mt-0 mb-3">3D networks pretrained on medical volumes or videos, a CT self-supervised transformer, a network trained from scratch and a 2.5D slice model. Their first layer is adapted to the number of series. Selecting several lets you compare them on the same folds.</p>
+                        {% for group, families, title, subtitle in [
+                            ("medical", ["medical"], "Medical 3D networks", "Pretrained on 23 CT and MRI datasets (MedicalNet): the closest to your data."),
+                            ("video", ["video"], "Video networks", "Pretrained on Kinetics-400 videos: spatio-temporal filters transfer well to volumes, the slices playing the role of frames."),
+                            ("other", ["ssl", "scratch", "2.5d"], "Other approaches", "Self-supervised on CT, trained from scratch, or a 2D foundation model applied slice by slice."),
                         ] %}
                         <div class="{% if not loop.first %}mt-4{% endif %}">
                             <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
@@ -65,16 +95,17 @@
                                 </div>
                             </div>
                             <div class="row g-2">
-                                {% for backbone in backbones if backbone.family == group %}
+                                {% for network in networks if network.family in families %}
                                 <div class="col-md-6">
                                     <label class="option-card">
-                                        <input type="checkbox" name="{{ backbone.key }}" value="true" data-group="{{ group }}"
-                                               {% if backbone.default %}checked{% endif %}>
+                                        <input type="checkbox" name="{{ network.key }}" value="true" data-group="{{ group }}"
+                                               {% if network.default %}checked{% endif %}>
                                         <span class="option-body">
                                             <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
                                             <span>
-                                                <span class="title d-block">{{ backbone.name }}{% if backbone.default %} <span class="badge rounded-pill text-bg-light border fw-medium ms-1">Recommended</span>{% endif %}</span>
-                                                <span class="desc d-block">{{ backbone.description }}</span>
+                                                <span class="title d-block">{{ network.name }}{% if network.default %} <span class="badge rounded-pill text-bg-light border fw-medium ms-1">Recommended</span>{% endif %}</span>
+                                                <span class="desc d-block">{{ network.description }}</span>
+                                                <span class="speed"><i class="bi bi-database" aria-hidden="true"></i>{{ network.weights }}{% if network.light %} · fast on CPU{% endif %}</span>
                                             </span>
                                         </span>
                                     </label>
@@ -93,12 +124,12 @@
                         <h2 class="mb-1">How the networks learn</h2>
                         <p class="help mb-3">
                             {% if gpu %}<i class="bi bi-gpu-card me-1 text-success" aria-hidden="true"></i>GPU detected: {{ gpu }}. Fine-tuning is practical.
-                            {% else %}<i class="bi bi-cpu me-1" aria-hidden="true"></i>No GPU detected ({{ cpu_count }} CPU cores): feature extraction is recommended. Fine-tuning can take hours; use the GPU Docker image for it.{% endif %}
+                            {% else %}<i class="bi bi-cpu me-1" aria-hidden="true"></i>No GPU detected ({{ cpu_count }} CPU cores): feature extraction is recommended. Fine-tuning 3D networks on CPU is very slow; use the GPU Docker image for it.{% endif %}
                         </p>
                         <div class="row g-2">
                             {% for value, title, desc, speed in [
-                                ("features", "Feature extraction", "The pretrained network is kept as is and turns each image into features; a logistic regression learns your classes from them. Robust with a few hundred images.", "Minutes, even on CPU"),
-                                ("finetune", "Fine-tuning", "The whole network is retrained on your images, with augmentation and early stopping. Usually more accurate with enough images.", "Hours on CPU, minutes on GPU"),
+                                ("features", "Feature extraction", "The pretrained network is kept as is and turns each study into features; a logistic regression learns your classes from them. Robust with small cohorts.", "Minutes, even on CPU"),
+                                ("finetune", "Fine-tuning", "The whole network is retrained on your studies, with 3D augmentation and early stopping. Usually more accurate with a few hundred studies or more.", "Hours on CPU, minutes on GPU"),
                             ] %}
                             <div class="col-md-6">
                                 <label class="option-card">
@@ -122,11 +153,11 @@
                             <div class="row g-3">
                                 <div class="col-sm-6 col-xl-3">
                                     <label class="form-label fw-semibold" for="epochs">Maximum epochs</label>
-                                    <input type="number" class="form-control" id="epochs" name="epochs" value="20" min="1" max="200">
+                                    <input type="number" class="form-control" id="epochs" name="epochs" value="30" min="1" max="200">
                                 </div>
                                 <div class="col-sm-6 col-xl-3">
                                     <label class="form-label fw-semibold" for="patience">Early-stopping patience</label>
-                                    <input type="number" class="form-control" id="patience" name="patience" value="5" min="1" max="50">
+                                    <input type="number" class="form-control" id="patience" name="patience" value="8" min="1" max="50">
                                 </div>
                                 <div class="col-sm-6 col-xl-3">
                                     <label class="form-label fw-semibold" for="learning_rate">Learning rate</label>
@@ -137,21 +168,21 @@
                                 <div class="col-sm-6 col-xl-3">
                                     <label class="form-label fw-semibold" for="batch_size">Batch size</label>
                                     <select class="form-select" id="batch_size" name="batch_size">
-                                        {% for value in [8, 16, 32, 64] %}<option value="{{ value }}" {% if value == 32 %}selected{% endif %}>{{ value }}</option>{% endfor %}
+                                        {% for value in [2, 4, 8, 16] %}<option value="{{ value }}" {% if value == 4 %}selected{% endif %}>{{ value }}</option>{% endfor %}
                                     </select>
                                 </div>
                             </div>
-                            <p class="help mt-3 mb-0">Each fold holds out 10% of its training images to stop when they stop improving; the final network is then trained on all of Train.zip for the median best number of epochs. Lower the batch size if the GPU runs out of memory.</p>
+                            <p class="help mt-3 mb-0">Each fold holds out 10% of its training studies to stop when they stop improving; the final network is then trained on all of Train.zip for the median best number of epochs. 3D networks need much more memory than 2D ones: lower the batch size or the volume size if the GPU runs out of memory.</p>
                         </div>
                         <div class="settings-section">
-                            <h2 class="mb-1">Data augmentation</h2>
-                            <p class="help mb-3">Random variations of the training images, so the network does not memorise them. All images are also randomly cropped by up to 20%.</p>
+                            <h2 class="mb-1">3D data augmentation</h2>
+                            <p class="help mb-3">Random variations of the training volumes, so the network does not memorise them.</p>
                             <div class="row g-2">
                                 {% for key, title, desc, checked in [
-                                    ("rotation", "Small rotations", "Up to ±10°, for positioning differences.", true),
-                                    ("intensity", "Brightness and contrast", "±20%, for scanner and exposure differences.", true),
-                                    ("horizontal_flip", "Horizontal flips", "Off by default: left and right matter in many medical images (e.g. chest X-rays).", false),
-                                    ("vertical_flip", "Vertical flips", "Only for images without an up/down orientation (e.g. histopathology).", false),
+                                    ("rotation", "Rotations and scaling", "In-plane rotations up to ±10° and zoom ±10%, for positioning differences.", true),
+                                    ("intensity", "Gamma and contrast", "For scanner and protocol differences.", true),
+                                    ("horizontal_flip", "Left-right flips", "Off by default: only for anatomy without a meaningful side (e.g. a single organ on the midline).", false),
+                                    ("vertical_flip", "Anterior-posterior flips", "Rarely appropriate in medical volumes.", false),
                                 ] %}
                                 <div class="col-md-6">
                                     <div class="form-check form-switch">
@@ -172,12 +203,12 @@
                         <div class="row g-3 align-items-center">
                             <div class="col-md-7">
                                 <h2><label for="k_folds">Cross-validation folds</label></h2>
-                                <p class="help">Train.zip is split into K stratified folds; each network is trained on K-1 folds and validated on the remaining one, K times.</p>
+                                <p class="help">Train.zip is split into K folds stratified by class and grouped by patient: all the studies of a patient stay in the same fold.</p>
                             </div>
                             <div class="col-md-5">
-                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="{{ [5, summary.min_class_count] | min }}" min="2" max="20" required
-                                       data-min-class="{{ summary.min_class_count }}" aria-describedby="k-folds-feedback">
-                                <div class="form-text" id="k-folds-feedback">At most {{ [20, summary.min_class_count] | min }}: the smallest class has {{ summary.min_class_count }} training images.</div>
+                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="{{ [5, max_folds] | min }}" min="2" max="20" required
+                                       data-min-class="{{ summary.min_class_patients }}" aria-describedby="k-folds-feedback">
+                                <div class="form-text" id="k-folds-feedback">At most {{ max_folds }}: the smallest class has {{ summary.min_class_patients }} training patients.</div>
                             </div>
                         </div>
                     </div>
@@ -216,18 +247,41 @@
                 </div>
 
                 <div class="card">
-                    <div class="card-header py-3"><i class="bi bi-heart-pulse me-2 text-primary" aria-hidden="true"></i>Medical image preparation</div>
+                    <div class="card-header py-3"><i class="bi bi-heart-pulse me-2 text-primary" aria-hidden="true"></i>Volume preparation</div>
                     <div class="settings-section">
-                        <p class="help mt-0">Every image is converted to 8 bits, padded to a square without distortion and resized to 224 × 224.
-                            {% if summary.has_high_bit_depth %}High bit-depth images (DICOM, NIfTI, 16-bit PNG/TIFF) are mapped with the settings below; without a window, the 0.5–99.5 percentiles of each image are used.{% endif %}
-                            MONOCHROME1 DICOM images are inverted.</p>
+                        <p class="help mt-0">The reference series is reoriented to axial slices; every series is scaled to [0, 1]{% if summary.has_ct %} (a CT window, or the 0.5–99.5 percentiles){% else %} with its 0.5–99.5 percentiles{% endif %}, and the aligned volume is resized to the size below.</p>
                     </div>
-                    {% if medical %}
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="shape">Volume size</label></h2>
+                                <p class="help">Slices × rows × columns given to the networks. Larger volumes keep more detail but need more memory and time{% if summary.slices_range %}; your series have {% if summary.slices_range[0] == summary.slices_range[1] %}{{ summary.slices_range[0] }}{% else %}{{ summary.slices_range[0] }} to {{ summary.slices_range[1] }}{% endif %} slices{% endif %}.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="shape" name="shape">
+                                    {% for shape in shapes %}<option value="{{ shape | join('x') }}" {% if loop.first %}selected{% endif %}>{{ shape[0] }} × {{ shape[1] }} × {{ shape[2] }}{% if loop.first %} (default){% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="crop">In-plane field of view</label></h2>
+                                <p class="help">Keeps the centre of each slice, for organs in the middle of the field of view (e.g. the prostate): more detail on them at the same volume size.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="crop" name="crop">
+                                    {% for crop in crops %}<option value="{{ crop }}">{% if crop == 1 %}Whole slice{% else %}Central {{ (crop * 100) | int }}%{% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                     <div class="settings-section">
                         <div class="row g-3 align-items-center">
                             <div class="col-md-7">
                                 <h2><label for="window">Intensity window</label></h2>
-                                <p class="help">{% if summary.has_ct %}CT windows (center / width in Hounsfield units) select the range that shows the tissue of interest; they apply to CT DICOM and NIfTI files. Automatic uses the window stored in the DICOM header, else the image percentiles.{% else %}DICOM windows stored in the file headers are used when present.{% endif %}</p>
+                                <p class="help">{% if summary.has_ct %}CT windows (center / width in Hounsfield units) apply to CT DICOM and NIfTI series. Automatic uses the window of the DICOM header for CT, else the percentiles of each series.{% else %}MRI and other series are scaled with their own percentiles.{% endif %}</p>
                             </div>
                             <div class="col-md-5">
                                 <select class="form-select" id="window" name="window">
@@ -236,22 +290,6 @@
                             </div>
                         </div>
                     </div>
-                    {% endif %}
-                    {% if summary.has_volumes %}
-                    <div class="settings-section">
-                        <div class="row g-3 align-items-center">
-                            <div class="col-md-7">
-                                <h2><label for="volume">3D volumes</label></h2>
-                                <p class="help">Volumes (3D NIfTI, multi-frame DICOM) are reduced to one 2D image: the middle (axial) slice, or the maximum intensity projection, which shows bright structures from all slices.</p>
-                            </div>
-                            <div class="col-md-5">
-                                <select class="form-select" id="volume" name="volume">
-                                    {% for value, label in volume_labels %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
 
@@ -259,17 +297,17 @@
                 <div class="card p-4" style="position: sticky; top: 5.5rem;">
                     <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
                     <div class="row g-2 mb-3 text-center">
-                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_images }}</div><div class="small-muted">train images</div></div></div>
-                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.test_images }}</div><div class="small-muted">test images</div></div></div>
-                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.classes | length }}</div><div class="small-muted">classes</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_studies }}</div><div class="small-muted">train studies</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.test_studies }}</div><div class="small-muted">test studies</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_patients }}</div><div class="small-muted">train patients</div></div></div>
                     </div>
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <span class="fw-semibold small">{{ 'Binary' if binary else 'Multiclass' }} classification</span>
-                        <span class="small-muted">train images per class</span>
+                        <span class="small-muted">train studies per class</span>
                     </div>
-                    <div class="d-grid gap-2 mb-3" aria-label="Training images per class">
+                    <div class="d-grid gap-2 mb-3" aria-label="Training studies per class">
                         {% for row in summary.class_counts %}
-                        {% set pct = (100 * row.train / summary.train_images) | round(1) %}
+                        {% set pct = (100 * row.train / summary.train_studies) | round(1) %}
                         <div class="dist-row">
                             <span class="text-truncate" style="max-width: 7rem" title="{{ row['class'] }}">{{ row['class'] }}</span>
                             <div class="dist-track" role="img" aria-label="{{ pct }} percent"><div class="dist-fill" style="width: {{ pct }}%"></div></div>
@@ -277,13 +315,12 @@
                         </div>
                         {% endfor %}
                     </div>
-                    <div class="small mb-1 fw-semibold">Files</div>
+                    <div class="small mb-1 fw-semibold">Series files</div>
                     <div class="d-flex flex-wrap gap-1 mb-3">
-                        {% for kind, count in summary.kinds.items() %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ {'dicom': 'DICOM', 'nifti': 'NIfTI', 'raster': 'PNG/JPEG/TIFF'}[kind] }} · {{ count }}</span>{% endfor %}
-                        {% for modality in summary.modalities %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ modality }}</span>{% endfor %}
-                        {% if summary.has_volumes %}<span class="badge rounded-pill text-bg-light border fw-medium">3D volumes</span>{% endif %}
+                        {% for kind, count in summary.kinds.items() %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ {'dicom': 'DICOM', 'nifti': 'NIfTI'}[kind] }} · {{ count }} series</span>{% endfor %}
+                        {% for modality in summary.modalities if modality != 'NIFTI' %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ modality }}</span>{% endfor %}
                     </div>
-                    {% if summary.size_range %}<div class="small-muted mb-3">Image sides from {{ summary.size_range[0] }} to {{ summary.size_range[1] }} pixels</div>{% endif %}
+                    <a class="small d-block mb-2" href="{{ url_for('image_parameters', dim=2) }}"><i class="bi bi-image me-1" aria-hidden="true"></i>Classify each image file in 2D instead</a>
                     <a class="small" href="{{ url_for('image') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
                 </div>
             </div>
@@ -302,5 +339,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/image_parameters.js') }}"></script>
+<script src="{{ url_for('static', filename='js/image3d_parameters.js') }}"></script>
 {% endblock %}

@@ -86,19 +86,38 @@
                     <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>DICOM (<code>.dcm</code> or no extension, compressed and multi-frame), NIfTI (<code>.nii</code>, <code>.nii.gz</code>), PNG (8 or 16-bit), JPEG, BMP, TIFF</span></li>
                     <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Sub-folders (e.g. one per patient) are allowed: every image file is one sample</span></li>
                     <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Keep all the images of a patient in the same zip, otherwise the test metrics are optimistic</span></li>
-                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>3D volumes are reduced to one 2D image (middle slice or maximum intensity projection)</span></li>
+                    <li><i class="bi bi-badge-3d text-primary" aria-hidden="true"></i><span>3D: zips of DICOM series and NIfTI volumes (without PNG/JPEG) are classified as 3D studies, one or more series per study; you can also classify them in 2D</span></li>
                 </ul>
             </div>
-            <div class="card p-4">
-                <h2 class="h6 fw-bold mb-3"><i class="bi bi-diagram-2 me-2 text-primary" aria-hidden="true"></i>Example layout</h2>
-<pre class="log-console mb-2" style="max-height:none">Train.zip
+            <div class="card p-4 mb-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-diagram-2 me-2 text-primary" aria-hidden="true"></i>Example layouts</h2>
+                <div class="small fw-semibold mb-1">2D images</div>
+<pre class="log-console mb-3" style="max-height:none">Train.zip
 ├── benign/
 │   ├── case_001.dcm
 │   └── patient_07/slice_12.dcm
 └── malignant/
     ├── case_104.nii.gz
     └── case_105.png</pre>
-                <div class="small-muted">A single wrapping folder (e.g. <code>Train/</code>) is fine. Test.zip has the same class folders.</div>
+                <div class="small fw-semibold mb-1">3D studies</div>
+<pre class="log-console mb-2" style="max-height:none">Train.zip
+├── benign/
+│   └── patient_01/
+│       └── study_1/
+│           ├── t2/   (DICOM slices)
+│           └── adc.nii.gz
+└── malignant/
+    └── patient_02/ ...</pre>
+                <div class="small-muted">Class / patient / study / series; the study level is optional, and a series is a folder of DICOM slices or a NIfTI or multi-frame DICOM file. Series with the same name in every study (e.g. <code>t2</code>, <code>adc</code>, <code>dwi</code>) become the input channels. A single wrapping folder (e.g. <code>Train/</code>) is fine.</div>
+            </div>
+            <div class="card p-4">
+                <h2 class="h6 fw-bold mb-2"><i class="bi bi-download me-2 text-primary" aria-hidden="true"></i>Example data</h2>
+                <p class="small-muted mb-3">Synthetic prostate-like MRI studies of 56 patients: a T2 series (DICOM slices) and an ADC map (NIfTI) per study, benign or malignant.</p>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for name, label in [("Train3D.zip", "3D Train.zip"), ("Test3D.zip", "3D Test.zip")] %}
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('image_example', name=name) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>{{ label }}</a>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>

@@ -127,30 +127,120 @@ for path in sorted(glob.glob("new_images/*")):
                  (['numpy pillow'] + extra) | join(' ')]) }}
 {%- endautoescape %}{%- endmacro %}
 
+{# ---- 3D image classification: studies made of one or more series ---- #}
+{% macro image3d_code(model_file, info) -%}{% autoescape false -%}
+{%- set ct = info.ct_window -%}
+{%- set single = info.channels == ['*'] -%}
+import json
+import os
+
+import numpy as np
+import SimpleITK as sitk
+import torch
+import torch.nn.functional as F
+
+meta = {"simplatab.json": ""}
+model = torch.jit.load("Materials/Models/{{ model_file }}", _extra_files=meta).eval()  # network + softmax
+info = json.loads(meta["simplatab.json"])  # classes, threshold, series, volume shape, crop, window
+{% if ct %}CT_WINDOW = ({{ ct[0] }}, {{ ct[1] }})  # {{ info.window | replace('_', ' ') }} window: center, width in Hounsfield units
+{% endif %}
+
+def read(path):  # a NIfTI or DICOM file, or a folder of DICOM slices (one series)
+    if os.path.isdir(path):
+        reader = sitk.ImageSeriesReader()
+        reader.SetFileNames(reader.GetGDCMSeriesFileNames(path))
+        reader.MetaDataDictionaryArrayUpdateOn()
+        image = reader.Execute()
+        tag = lambda key: reader.GetMetaData(0, key).strip() if reader.HasMetaDataKey(0, key) else None
+    else:
+        image = sitk.ReadImage(path)
+        tag = lambda key: image.GetMetaData(key).strip() if image.HasMetaDataKey(key) else None
+    if image.GetNumberOfComponentsPerPixel() > 1:  # colour: mean of the components
+        parts = [sitk.VectorIndexSelectionCast(image, i, sitk.sitkFloat32) for i in range(image.GetNumberOfComponentsPerPixel())]
+        image = sum(parts[1:], parts[0]) / float(len(parts))
+    if image.GetDimension() == 4:  # several volumes: the first one
+        image = sitk.Extract(image, list(image.GetSize()[:3]) + [0], [0, 0, 0, 0])
+    if image.GetDimension() == 2:
+        image = sitk.JoinSeries(image)
+    modality = (tag("0008|0060") or ("NIFTI" if path.lower().endswith((".nii", ".nii.gz")) else "")).upper()
+    center, width = tag("0028|1050"), tag("0028|1051")
+    window = (float(center.split("\\")[0]), float(width.split("\\")[0])) if center and width else None
+    return sitk.Cast(image, sitk.sitkFloat32), modality, window
+
+
+def to_unit(values, modality, header_window):  # intensities to [0, 1], as in training
+    {% if ct %}if modality in ("CT", "NIFTI"):
+        return np.clip((values - (CT_WINDOW[0] - CT_WINDOW[1] / 2)) / CT_WINDOW[1], 0, 1)
+    {% elif info.window == 'auto' %}if modality == "CT" and header_window and header_window[1]:  # window of the DICOM header
+        return np.clip((values - (header_window[0] - header_window[1] / 2)) / header_window[1], 0, 1)
+    {% endif %}finite = values[np.isfinite(values)]  # 0.5-99.5 percentiles of the volume
+    low, high = np.percentile(finite, [0.5, 99.5])
+    if high <= low:
+        low, high = float(finite.min()), float(finite.max())
+    if high <= low:
+        return np.zeros_like(values)
+    return np.clip((np.nan_to_num(values, nan=low) - low) / (high - low), 0, 1)
+
+
+def load(series):  # one path per series{% if not single %}, in the order of info["channels"]: {{ info.channels | join(', ') }}{% endif %}
+    reference, modality, window = read(series[0])
+    reference = sitk.DICOMOrient(reference, "LPS")  # axial slices, as in training
+    channels = [to_unit(sitk.GetArrayFromImage(reference), modality, window)]
+    for path in series[1:]:  # aligned on the first series in patient coordinates
+        image, modality, window = read(path)
+        background = float(sitk.GetArrayViewFromImage(image).min())
+        aligned = sitk.Resample(image, reference, sitk.Transform(), sitk.sitkLinear, background, sitk.sitkFloat32)
+        channels.append(to_unit(sitk.GetArrayFromImage(aligned), modality, window))
+    x = np.stack(channels).astype(np.float32)
+    {% if info.crop < 1 %}rows, columns = x.shape[2:]  # central {{ (info.crop * 100) | int }}% of the field of view
+    h, w = max(1, int(round(rows * {{ info.crop }}))), max(1, int(round(columns * {{ info.crop }})))
+    x = x[:, :, (rows - h) // 2:(rows - h) // 2 + h, (columns - w) // 2:(columns - w) // 2 + w]
+    {% endif %}x = torch.from_numpy(np.ascontiguousarray(x))[None]
+    return F.interpolate(x, size=tuple(info["shape"]), mode="trilinear", align_corners=False)
+
+
+def predict(series):
+    with torch.no_grad():
+        p = model(load(series))[0].numpy()
+    k = int(p[1] > info["threshold"]) if info["threshold"] is not None else int(p.argmax())
+    return info["classes"][k], p
+
+
+{% if single %}print(predict(["new_study.nii.gz"]))  # or a folder of DICOM slices
+{% else %}print(predict([{% for name in info.channels %}"new_study/{{ name }}"{% if not loop.last %}, {% endif %}{% endfor %}]))  # folders of DICOM slices or NIfTI files
+{% endif %}
+{%- endautoescape %}{%- endmacro %}
+
 {% macro usage_card(is_image, models, best, info) %}
 {% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
 <div class="card mb-4" id="use-models">
     <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Use a trained model on new data</div>
     <div class="p-3">
         <p class="small-muted mt-0">
-            {% if is_image %}Each <code>.pt</code> file is a standalone TorchScript model trained on all of Train.zip, with its classes, decision threshold and preprocessing; the code below prepares new images exactly as the training images{% if (info.formats or {}).dicom or (info.formats or {}).nifti %} (DICOM and NIfTI included){% endif %}.
+            {% if is_image and info.dim == 3 %}Each <code>.pt</code> file is a standalone TorchScript model trained on all of Train.zip, with its classes, decision threshold and preprocessing; the code below reads, aligns and resizes the series of a new study exactly as in training.
+            {% elif is_image %}Each <code>.pt</code> file is a standalone TorchScript model trained on all of Train.zip, with its classes, decision threshold and preprocessing; the code below prepares new images exactly as the training images{% if (info.formats or {}).dicom or (info.formats or {}).nifti %} (DICOM and NIfTI included){% endif %}.
             {% else %}Each <code>.pkl</code> file is a standalone scikit-learn pipeline trained on all of Train.csv: feature selection, preprocessing and classifier.{% endif %}
             It runs without Simplatab. The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best model on the test set{% endif %}; replace the file name for another model.
         </p>
         <h3 class="h6 fw-bold">1. Install</h3>
-        {% if is_image %}
+        {% if is_image and info.dim == 3 %}
+        {{ code_block("code-install", "Shell", install_code(['"torch>=2.8" --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build for a GPU', 'numpy SimpleITK==2.5.2'])) }}
+        {% elif is_image %}
         {{ code_block("code-install", "Shell", image_packages(info)) }}
         {% else %}
         {{ code_block("code-install", "Shell", install_code([chosen.requirements | join(' ')])) }}
         {% endif %}
         <h3 class="h6 fw-bold mt-3">2. Predict <span class="small-muted fw-normal">(save as <code>predict.py</code> and run <code>python predict.py</code>)</span></h3>
-        {% if is_image %}
+        {% if is_image and info.dim == 3 %}
+        {{ code_block("code-predict", "Python", image3d_code(chosen.path.split('/')[-1], info)) }}
+        {% elif is_image %}
         {{ code_block("code-predict", "Python", image_code(chosen.path.split('/')[-1], info)) }}
         {% else %}
         {{ code_block("code-predict", "Python", tabular_code(chosen.name, info)) }}
         {% endif %}
         <p class="small-muted mt-3 mb-0">
-            {% if is_image %}Put the new images in a <code>new_images</code> folder (the same kinds of files as for training).
+            {% if is_image and info.dim == 3 %}Give the series of a new study in the order of training{% if info.channels != ['*'] %} ({{ info.channels | join(', ') }}){% endif %}: a folder of DICOM slices, or a NIfTI or multi-frame DICOM file per series.
+            {% elif is_image %}Put the new images in a <code>new_images</code> folder (the same kinds of files as for training).
             {% else %}<code>new_samples.csv</code> holds the new samples, with the columns of Train.csv; rows with missing values are skipped, as in training.{% endif %}
             The library versions above are the ones that trained the model.</p>
     </div>
