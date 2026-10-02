@@ -15,34 +15,57 @@ explains their predictions and gives you the trained models. Your data never lea
 
 Classification: binary and multiclass problems. Segmentation: up to 32 classes.
 
-## Quick start
+## Three ways to run it
+
+Whichever you choose, open **http://localhost:7111/automl/** (or port 5000 when run as Python) in a browser. The
+app runs on Linux, Windows and macOS (Intel and Apple Silicon); your data stays on that machine.
+
+### 1. Pull the image (recommended)
 
 ```bash
+docker pull dimzaridis/simplatab-machine-learning-automator:latest
 docker run -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:latest
 ```
-Open **http://localhost:7111/automl/**. The image runs on Linux, Windows and macOS (Intel and Apple Silicon).
-
-**NVIDIA GPU** (much faster to fine-tune image networks; needs the
-[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)):
+**NVIDIA GPU** (much faster for the image, detection and segmentation networks):
 ```bash
 docker run --gpus all --shm-size=4g -p 7111:5000 dimzaridis/simplatab-machine-learning-automator:latest-gpu
 ```
+Notes:
+- Tags: `latest` and `latest-gpu`, or a version from the
+  [releases](https://github.com/dzaridis/simplatab-machine-learning-automator/releases) (e.g. `1.1.8`, `1.1.8-gpu`).
+  The CPU image is multi-architecture (amd64, arm64); the GPU image is amd64 and needs the NVIDIA driver and the
+  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+- `--shm-size=4g` gives the data loaders of the networks enough shared memory.
+- Pretrained weights are included in the images, so the automators work offline.
+- The results are written inside the container (`/app/Materials`) and downloadable from the results page; add
+  `-v "$PWD/Materials:/app/Materials"` to keep them on the host. Each run replaces the previous results.
+- Port `7111` is any free port of your machine (`-p <port>:5000`).
 
-<details>
-<summary>Other ways to run it: a specific version, building the image, from source</summary>
+### 2. Build the image from source
 
-- **A specific version**: replace `latest` with a version from the
-  [releases](https://github.com/dzaridis/simplatab-machine-learning-automator/releases) (`1.1.2`, or `1.1.2-gpu`).
-- **Build the image**: `docker build -t simplatab .` (GPU: `docker build --build-arg DEVICE=gpu -t simplatab:gpu .`).
-- **From source** (Python 3.9):
-  ```bash
-  git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
-  cd simplatab-machine-learning-automator
-  pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build
-  pip install -r requirements.txt
-  python app.py   # then open http://localhost:5000/automl/
-  ```
-</details>
+```bash
+git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
+cd simplatab-machine-learning-automator
+docker build -t simplatab .                                # CPU
+docker build --build-arg DEVICE=gpu -t simplatab:gpu .     # NVIDIA GPU (CUDA 12.8, linux/amd64)
+docker run -p 7111:5000 simplatab                          # GPU: docker run --gpus all --shm-size=4g -p 7111:5000 simplatab:gpu
+```
+
+### 3. Run it as a Python application
+
+Python 3.9 (the pinned libraries, e.g. numpy 1.23 and nnU-Net 2.4, target it):
+```bash
+git clone https://github.com/dzaridis/simplatab-machine-learning-automator.git
+cd simplatab-machine-learning-automator
+python3.9 -m venv venv && source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu   # GPU: pip install torch==2.8.0 torchvision==0.23.0
+pip install -r requirements.txt
+python app.py                                             # then open http://localhost:5000/automl/
+```
+Pretrained weights are downloaded on first use; the results are written to `Materials/` in the current folder.
+
+**For AI agents**: the [MCP server](mcp_server/README.md) exposes every automator as Model Context Protocol tools
+(see [below](#mcp-server-for-ai-agents)).
 
 ## How it works
 
@@ -162,6 +185,7 @@ Everything is written to the `Materials` folder, shown on the results page and d
 | Output | Files |
 |---|---|
 | Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline; detection: mAP, AP at IoU 0.5/0.75 (3D: 0.1/0.25/0.5), recall, FROC, precision/recall/F1 and image-level sensitivity/specificity at the threshold; segmentation: Dice, IoU, HD95, ASSD, sensitivity, precision) | `<K>_fold_results.xlsx` (mean ± SD) or `holdout_results.xlsx`, `test_results.xlsx`, `Metrics_Plots/` (forecasting) |
+| Validation splits: the samples of every fold (to reproduce the validation) | `Splits/splits.csv`, `Splits/splits.json` |
 | Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/`, `Detection_Curves/` (precision-recall, FROC, AP per class), `Segmentation_Plots/` |
 | Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images; 3D: the slices where the map is strongest), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps) |
 | Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors, segmentation networks), `Models/<model>.zip` (forecasting, transformers detectors, nnU-Net model folders) |
@@ -171,6 +195,18 @@ Everything is written to the `Materials` folder, shown on the results page and d
 | Predicted test masks (original mask values; 3D: NIfTI on the grid of the first series), metrics per class and case, overlays with the uncertainty map (worst, median and best test cases) | `Predictions/<network>/`, `Segmentation_Metrics/`, `Overlays/<network>/` |
 
 Each run replaces the results of the previous one.
+
+## Validation splits
+
+Every run writes the samples of each fold to `Materials/Splits/`, so that the validation can be reproduced exactly
+(and is shown in the Downloads tab of the results page):
+- `splits.csv`: one row per sample and fold: `fold`, `set` (`train`, `validation`, and `early_stopping` where a part
+  of the training fold stops the training early) and `id`, plus `patient` (the group kept in one fold), `class`,
+  `row` (the line of Train.csv, tabular) or the `start`/`end` times of each series (forecasting windows);
+- `splits.json`: the ids of every fold, with a description of how the folds were made (seeds included).
+
+`id` is what identifies a sample in your data: the `ID` (or `patient_id`) column of Train.csv, the image, study or
+case path inside Train.zip, or the series ID.
 
 ## Using the trained models
 
@@ -326,6 +362,19 @@ maps them back to your mask values and aligns the series as in training.
 - A GPU is used automatically when available. A model that cannot run on a dataset is skipped and reported,
   and the others still complete.
 
+## MCP server for AI agents
+
+[`mcp_server/`](mcp_server/README.md) turns every automator into [Model Context Protocol](https://modelcontextprotocol.io)
+tools, so that agents run experiments by themselves: they read the **data contract** of an automator
+(`get_data_contract`: layout, formats, rules, configuration fields and models), provide the data (a path or an
+upload) and a configuration, then follow the run and read the results (metrics, best model, splits, figures).
+```bash
+docker build -f mcp_server/Dockerfile -t simplatab-mcp .            # GPU: --build-arg DEVICE=gpu
+claude mcp add simplatab -- docker run -i --rm -v /path/to/data:/data -v simplatab-workspace:/workspace simplatab-mcp
+```
+It runs the same pipelines as the web application, over stdio or Streamable HTTP, with a queue of experiments;
+see [mcp_server/README.md](mcp_server/README.md).
+
 ## Releases
 
 Every push to `main` whose tests pass is released automatically: the version is the latest release plus `0.0.1`,
@@ -337,11 +386,12 @@ version. For a new minor or major version, create a tag such as `1.2.0`; the nex
 ```bash
 python -m unittest discover tests
 ```
-Code layout: `app.py` (web app), `Helpers/` (tabular pipeline), `Helpers/image/` (image pipeline),
+Code layout: `app.py` (web app), `Helpers/` (tabular pipeline; `splits.py`: the validation splits of every automator), `Helpers/image/` (image pipeline),
 `Helpers/image3d/` (3D image pipeline),
 `Helpers/forecasting/` (forecasting pipeline), `Helpers/detection/` (object detection pipeline),
 `Helpers/segmentation/` (segmentation pipeline; `nnunet_runner.py` runs nnU-Net in a separate process), `web/`
-(automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning).
+(automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning),
+`mcp_server/` (MCP server, its Dockerfile and tests).
 `Examples/` holds the outputs of example runs on the Iris and breast cancer datasets, the example time series and
 the example detection, 3D and segmentation data. Set `SIMPLATAB_PRETRAINED=0` to run the detection, 3D and segmentation automators without downloading weights
 (randomly initialised networks, e.g. for tests).
