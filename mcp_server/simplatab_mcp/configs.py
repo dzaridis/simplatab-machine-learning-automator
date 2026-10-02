@@ -336,8 +336,39 @@ def _clustering(config, summary):
     return params, _names(available, selected)
 
 
+def _survival(config, summary):
+    r = _Reader(config, contracts.config_schema("survival-analysis"))
+    available = contracts.models("survival-analysis")
+    horizons = (config or {}).get("horizons")
+    if horizons is None:
+        horizons = list(summary["suggested_horizons"])
+    else:
+        try:
+            horizons = sorted({float(h) for h in (horizons if isinstance(horizons, list) else [horizons])})
+        except (TypeError, ValueError):
+            raise ConfigError("horizons is a list of numbers (times in the unit of Time).")
+        if not 1 <= len(horizons) <= 5 or horizons[0] <= 0 or horizons[-1] >= summary["time_max"]:
+            raise ConfigError(f"horizons: 1 to 5 times between 0 and {summary['time_max']:g} (the longest follow-up).")
+    ignore = list((config or {}).get("ignore_columns") or [])
+    if [c for c in ignore if c not in summary["features"]] or len(set(ignore)) >= len(summary["features"]):
+        raise ConfigError(f"ignore_columns must be some (not all) of the feature columns: {', '.join(summary['features'])}.")
+    params = {
+        "models": r.models(available),
+        "k_folds": r.number("k_folds", int, 2, summary["max_folds"], min(5, summary["max_folds"])),
+        "horizons": horizons,
+        "selection_metric": r.choice("selection_metric", ["C-index", "Uno C-index", "IBS"], "C-index"),
+        "ignore_columns": ignore,
+        "penalty": r.number("penalty", float, 0.0, 10.0, 0.01),
+        "epochs": r.number("epochs", int, 20, 1000, 200),
+        "explain": str((config or {}).get("explain", True)).lower() not in ("false", "0", "no"),
+        "seed": r.number("seed", int, 0, 2 ** 31 - 1, 42),
+    }
+    return params, _names(available, params["models"])
+
+
 BUILDERS = {"tabular": _tabular, "image-classification": _image, "object-detection": _detection,
-            "image-segmentation": _segmentation, "time-series-forecasting": _forecasting, "clustering": _clustering}
+            "image-segmentation": _segmentation, "time-series-forecasting": _forecasting, "clustering": _clustering,
+            "survival-analysis": _survival}
 
 
 def build(automator, config, summary):

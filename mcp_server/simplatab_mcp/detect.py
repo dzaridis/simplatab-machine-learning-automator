@@ -62,6 +62,12 @@ def _csv(path):
     ids = [c for c in ("ID", "patient_id") if c in columns]
     evidence = {"columns": columns[:50], "rows_read": len(frame)}
     features = len(columns) - len(ids) - (1 if "Target" in columns else 0)
+    if {"Time", "Event"} <= set(columns):
+        events = frame["Event"].astype(str).str.strip().str.lower()
+        binary = events.isin(["0", "1", "0.0", "1.0", "true", "false", "yes", "no"]).all()
+        return [{"automator": "survival-analysis", "confidence": "high" if binary else "medium",
+                 "reason": "Time and Event columns: follow-up time and event indicator (time-to-event data)"
+                           + ("" if binary else " (but Event is not only 0/1)")}], evidence, []
     if "Target" not in columns:
         if features < 1:
             return [], evidence, ["No feature column: clustering needs at least one column besides ID."]

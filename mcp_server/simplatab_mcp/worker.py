@@ -24,6 +24,7 @@ PIPELINES = {
     "image-segmentation": ("Helpers.segmentation.pipeline", "run_segmentation_pipeline"),
     "time-series-forecasting": ("Helpers.forecasting.pipeline", "run_forecasting_pipeline"),
     "clustering": ("Helpers.clustering.pipeline", "run_clustering_pipeline"),
+    "survival-analysis": ("Helpers.survival.pipeline", "run_survival_pipeline"),
 }
 
 

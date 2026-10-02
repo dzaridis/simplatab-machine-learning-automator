@@ -76,7 +76,7 @@ class TestServer(unittest.TestCase):
             self.assertTrue({"list_automators", "get_data_contract", "create_experiment", "start_experiment", "run_experiment",
                              "get_experiment", "get_results", "read_result_file", "cancel_experiment", "upload_file"} <= names)
             automators = _data(await client.call_tool("list_automators", {}))["automators"]
-            self.assertEqual(len(automators), 6)
+            self.assertEqual(len(automators), 7)
             self.assertIn("clustering", [a["id"] for a in automators])
             contract = _data(await client.call_tool("get_data_contract", {"automator": "image-segmentation", "dim": 3}))
             self.assertEqual(list(contract["models_by_dim"]), ["3d"])
@@ -220,7 +220,8 @@ class TestSharedWorkspace(unittest.TestCase):
 
 EXAMPLES = [("tabular", "2d"), ("time-series-forecasting", "2d"), ("image-classification", "2d"),
             ("image-classification", "3d"), ("object-detection", "2d"), ("object-detection", "3d"),
-            ("image-segmentation", "2d"), ("image-segmentation", "3d"), ("clustering", "labeled")]
+            ("image-segmentation", "2d"), ("image-segmentation", "3d"), ("clustering", "labeled"),
+            ("survival-analysis", "2d")]
 
 
 @unittest.skipIf(Client is None, "the MCP SDK (Python >= 3.10) is not installed")

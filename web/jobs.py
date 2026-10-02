@@ -46,6 +46,13 @@ FORECAST_PHASES = [
     ("done", "Report"),
 ]
 
+SURVIVAL_PHASES = [
+    ("data", "Loading data"),
+    ("kfold", "K-fold training"),
+    ("test", "External test"),
+    ("done", "Report"),
+]
+
 CLUSTERING_PHASES = [
     ("data", "Preparing data"),
     ("kfold", "Clustering and validation"),

@@ -621,3 +621,38 @@ print(clusters)
     </div>
 </div>
 {% endmacro %}
+
+
+{# ---- Survival analysis ---- #}
+
+{% macro survival_code(model, info) -%}{% autoescape false -%}
+import pickle
+
+import pandas as pd
+
+with open("Materials/Models/{{ model.file }}", "rb") as f:
+    model = pickle.load(f)  # preprocessing (imputation, scaling, one-hot encoding) and {{ model.name }}
+
+patients = pd.read_csv("new_patients.csv"{% if info.id_column %}, index_col="{{ info.id_column }}"{% endif %})  # columns of Train.csv; Time and Event not needed
+risk = pd.Series(model.predict_risk(patients), index=patients.index, name="risk")  # higher: earlier event
+survival = model.predict_survival(patients, times=[{{ info.horizons | join(', ') }}])  # event-free probability at each time
+print(survival.join(risk))
+{%- endautoescape %}{%- endmacro %}
+
+{% macro survival_usage_card(models, best, info) %}
+{% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
+<div class="card mb-4" id="use-models">
+    <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Predict the survival of new patients</div>
+    <div class="p-3">
+        <p class="small-muted mt-0">
+            Each <code>.pkl</code> file holds the preprocessing fitted on Train.csv and a survival model. It runs without Simplatab.
+            The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best model{% endif %}; replace the file name for another one.
+        </p>
+        <h3 class="h6 fw-bold">1. Install</h3>
+        {{ code_block("code-install", "Shell", install_code([chosen.requirements | join(' ')])) }}
+        <h3 class="h6 fw-bold mt-3">2. Predict <span class="small-muted fw-normal">(save as <code>predict.py</code> and run <code>python predict.py</code>)</span></h3>
+        {{ code_block("code-predict", "Python", survival_code(chosen, info)) }}
+        <p class="small-muted mt-3 mb-0"><code>new_patients.csv</code> has the feature columns of Train.csv; the times are in the unit of <code>Time</code>. The library versions above are the ones that trained the model.</p>
+    </div>
+</div>
+{% endmacro %}

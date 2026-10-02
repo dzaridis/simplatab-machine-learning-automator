@@ -6,7 +6,7 @@ import json
 import math
 import os
 
-LOWER_IS_BETTER = {"HD95", "ASSD", "MAE", "RMSE", "sMAPE", "MASE", "Davies-Bouldin"}
+LOWER_IS_BETTER = {"HD95", "ASSD", "MAE", "RMSE", "sMAPE", "MASE", "Davies-Bouldin", "IBS"}
 
 
 def _value(v):
@@ -60,7 +60,7 @@ def collect(experiment_dir, automator):
             out["validation_metrics"] = _table(path)
             break
     out["best_model"] = _best(automator, info, out["test_metrics"])
-    out["metric_direction"] = {k: ("lower" if k in LOWER_IS_BETTER else "higher")
+    out["metric_direction"] = {k: ("lower" if k in LOWER_IS_BETTER or k.startswith("Brier@") else "higher")
                                for k in (out["test_metrics"] or out.get("train_metrics") or [{}])[0] if k != "model"}
     splits = os.path.join(root, "Splits", "splits.json")
     if os.path.exists(splits):

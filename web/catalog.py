@@ -245,6 +245,37 @@ AUTOMATORS = [
             "Trained models that assign new samples to the clusters (.pkl)",
         ],
     ),
+    Automator(
+        slug="survival-analysis",
+        name="Survival Analysis",
+        tagline="Predict when an event will happen",
+        description=(
+            "Time-to-event models (Cox, AFT, XGBoost, DeepSurv, DeepHit, Logistic-Hazard) for censored follow-up "
+            "data, validated with C-index, integrated Brier score and time-dependent AUC."
+        ),
+        icon="heart-pulse",
+        status="available",
+        endpoint="survival",
+        use_case="e.g. overall survival or time to relapse after treatment",
+        data="Train.csv + Test.csv with Time and Event",
+        models_short="8 models: Cox to DeepHit",
+        explains="Risk groups + importance",
+        inputs=[
+            "Train.csv and Test.csv, one row per patient",
+            "Time (follow-up) and Event (1 event, 0 censored) columns",
+            "Numeric and categorical features; missing values are imputed",
+        ],
+        steps=[
+            "Cox PH, Weibull and log-normal AFT, XGBoost Cox and AFT, DeepSurv, DeepHit, Logistic-Hazard",
+            "Stratified K-fold cross-validation, then the external test set",
+            "Kaplan-Meier risk groups with a log-rank test, calibration, permutation importance",
+        ],
+        outputs=[
+            "C-index, Uno's C-index, integrated Brier score, time-dependent AUC and Brier at your horizons",
+            "Risk and survival probabilities of every test patient",
+            "Trained models that predict survival curves of new patients (.pkl)",
+        ],
+    ),
 ]
 
 
