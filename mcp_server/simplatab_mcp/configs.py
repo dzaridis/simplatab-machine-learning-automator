@@ -274,8 +274,70 @@ def _forecasting(config, summary):
     return params, list(params["models"])
 
 
+def _clustering(config, summary):
+    from Helpers.clustering import metrics as cm
+    r = _Reader(config, contracts.config_schema("clustering"))
+    rows = summary["train_rows"]
+    available = [m for m in contracts.models("clustering")]
+    fits = [m for m in available if rows <= m["max_rows"]]
+    selected = r.models(available, default=[m["key"] for m in fits if m["default"]])
+    too_many = [m["key"] for m in available if m["key"] in selected and rows > m["max_rows"]]
+    if too_many:
+        raise ConfigError(f"Train.csv has {rows} rows: too many for {', '.join(too_many)} (see max_rows in the models).")
+    labeled = summary["has_labels"] and len(summary["classes"]) >= 2
+    max_k = summary["max_k"]
+    n_clusters = (config or {}).get("n_clusters", "classes" if labeled else "auto")
+    if n_clusters == "classes" and not labeled:
+        raise ConfigError("n_clusters=\"classes\" needs a Target column with at least two classes: use \"auto\" or an integer.")
+    if n_clusters not in ("classes", "auto"):
+        try:
+            n_clusters = int(n_clusters)
+        except (TypeError, ValueError):
+            raise ConfigError("n_clusters is an integer, \"classes\" or \"auto\".")
+        if not 2 <= n_clusters <= max_k:
+            raise ConfigError(f"n_clusters must be between 2 and {max_k} (got {n_clusters}).")
+    k_min = r.number("k_min", int, 2, max_k, 2)
+    k_max = r.number("k_max", int, k_min, max_k, max(k_min, min(10, max_k)))
+    validation = r.choice("validation", ["kfold", "none"], "kfold")
+    metrics = cm.INTERNAL + [cm.STABILITY] + (cm.EXTERNAL if labeled else [])
+    metric = r.choice("selection_metric", metrics, "ARI" if labeled else "Silhouette")
+    if metric == cm.STABILITY and validation == "none":
+        raise ConfigError("selection_metric \"Stability (ARI)\" needs validation=\"kfold\".")
+    ignore = list((config or {}).get("ignore_columns") or [])
+    unknown = [c for c in ignore if c not in summary["features"]]
+    if unknown:
+        raise ConfigError(f"ignore_columns must be feature columns: {', '.join(summary['features'])}.")
+    if len(set(ignore)) >= len(summary["features"]):
+        raise ConfigError("ignore_columns would leave no feature.")
+
+    def flag(name, default):
+        return str((config or {}).get(name, default)).lower() not in ("false", "0", "no")
+
+    params = {
+        "models": selected,
+        "n_clusters": n_clusters,
+        "k_min": k_min,
+        "k_max": k_max,
+        "k_criterion": r.choice("k_criterion", ["silhouette", "calinski_harabasz", "davies_bouldin"], "silhouette"),
+        "validation": validation,
+        "k_folds": r.number("k_folds", int, 2, summary["max_folds"], min(5, summary["max_folds"])),
+        "selection_metric": metric,
+        "scaling": r.choice("scaling", ["standard", "robust", "minmax", "none"], "standard"),
+        "reduction": r.choice("reduction", ["none", "pca"], "none"),
+        "pca_variance": r.number("pca_variance", float, 0.5, 0.99, 0.95),
+        "ignore_columns": ignore,
+        "pretrain_epochs": r.number("pretrain_epochs", int, 10, 1000, 100),
+        "epochs": r.number("epochs", int, 10, 1000, 100),
+        "latent_dim": r.number("latent_dim", int, 2, 64, 10),
+        "explain": flag("explain", True),
+        "tsne": flag("tsne", True),
+        "seed": r.number("seed", int, 0, 2 ** 31 - 1, 42),
+    }
+    return params, _names(available, selected)
+
+
 BUILDERS = {"tabular": _tabular, "image-classification": _image, "object-detection": _detection,
-            "image-segmentation": _segmentation, "time-series-forecasting": _forecasting}
+            "image-segmentation": _segmentation, "time-series-forecasting": _forecasting, "clustering": _clustering}
 
 
 def build(automator, config, summary):

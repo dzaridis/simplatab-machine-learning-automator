@@ -18,9 +18,10 @@ from pathlib import Path
 
 from mcp import Client, StdioServerParameters
 
-AUTOMATORS = ["tabular", "image-classification", "object-detection", "image-segmentation", "time-series-forecasting"]
+AUTOMATORS = ["tabular", "image-classification", "object-detection", "image-segmentation", "time-series-forecasting", "clustering"]
 EXAMPLES = [("tabular", "2d"), ("time-series-forecasting", "2d"), ("image-classification", "2d"), ("image-classification", "3d"),
-            ("object-detection", "2d"), ("object-detection", "3d"), ("image-segmentation", "2d"), ("image-segmentation", "3d")]
+            ("object-detection", "2d"), ("object-detection", "3d"), ("image-segmentation", "2d"), ("image-segmentation", "3d"),
+            ("clustering", "labeled"), ("clustering", "unlabeled")]
 
 
 def data(result):

@@ -17,6 +17,8 @@ QUICK = {
                            "nnunet_iterations": 10},
     "time-series-forecasting": {"models": ["NHITS", "DLinear"], "horizon": 14, "k_folds": 2, "max_steps": 100,
                                 "season": 7},
+    "clustering": {"models": ["kmeans", "gmm", "agglomerative", "hdbscan", "idec", "som"], "k_folds": 3,
+                   "pretrain_epochs": 30, "epochs": 30},
 }
 
 
@@ -92,9 +94,21 @@ def example(automator, variant, workspace):
         train, test, description = _copy("time-series-forecasting", ["Train.csv", "Test.csv"], dest,
                                          "Daily glucose of 40 patients (30 continued, 10 new in Test.csv): insulin and weekend known in advance, "
                                          "steps observed up to now, age/sex/BMI static.")
+    elif automator == "clustering":
+        train, test, description = _copy("clustering", ["Train.csv", "Test.csv"], dest,
+                                         "Adults with newly diagnosed diabetes (600 train, 200 test): age, sex, BMI, HbA1c, "
+                                         "HOMA2-B, HOMA2-IR, GADA, blood pressure; Target: the 5 subgroups of Ahlqvist et al. "
+                                         "2018 (used only to evaluate the clusters).")
+        if variant == "unlabeled":
+            import pandas as pd
+            for path in (train, test):
+                pd.read_csv(path).drop(columns=["Target"]).to_csv(path, index=False)
+            description = description.split("; Target")[0] + "; no Target: unsupervised clustering."
     else:
         raise KeyError(automator)
     config = dict(QUICK[automator])
+    if automator == "clustering" and variant == "unlabeled":
+        config.update(n_clusters="auto", k_max=8)
     if automator == "time-series-forecasting":
         config["future_columns"] = ["Insulin_units", "Weekend"]
     if automator == "image-segmentation" and variant == "3d":

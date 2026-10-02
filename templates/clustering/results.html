@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header, filesize, splits_card %}
+{% from "_usage.html" import clustering_usage_card %}
+{% block title %}Results · Clustering{% endblock %}
+
+{% macro figure(item) %}
+<div class="card figure-card wide h-100">
+    <button type="button" class="thumb" data-bs-toggle="modal" data-bs-target="#lightbox"
+            data-src="{{ url_for('material', filepath=item.path) }}" data-title="{{ item.title }}"
+            aria-label="Enlarge: {{ item.title }}">
+        <img src="{{ url_for('material', filepath=item.path) }}" alt="{{ item.title }}" loading="lazy">
+    </button>
+    <div class="caption">
+        <span>{{ item.title }}</span>
+        <a href="{{ url_for('download_file', filepath=item.path) }}" class="text-body-secondary" aria-label="Download {{ item.title }}"
+           data-bs-toggle="tooltip" data-bs-title="Download"><i class="bi bi-download" aria-hidden="true"></i></a>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro file_list(items, icon) %}
+<ul class="list-group list-group-flush">
+    {% for item in items %}
+    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+        <span><i class="bi bi-{{ icon }} me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ filesize(item.size) }}</span>
+            {% if item.description %}<span class="d-block small-muted">{{ item.description }}</span>{% endif %}</span>
+        <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download</a>
+    </li>
+    {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro metric_table(rows, columns, best_model, lower, numeric=True) %}
+<div class="table-responsive">
+    <table class="table metric-table">
+        <thead><tr><th scope="col">Algorithm</th>{% for metric in columns %}<th scope="col" class="text-nowrap">{{ metric }}{% if metric in lower %} <span class="small-muted" title="lower is better">↓</span>{% endif %}</th>{% endfor %}</tr></thead>
+        <tbody>
+            {% for row in rows %}
+            <tr class="{% if row.model == best_model %}is-best{% endif %}">
+                <th scope="row" class="fw-semibold text-body text-nowrap" style="text-transform:none; letter-spacing:0; font-size:.9rem">{{ row.model }}</th>
+                {% for metric in columns %}
+                {% set value = row["values"][metric] %}
+                {% if numeric %}
+                <td class="tabular-nums text-nowrap {% if row.best and row.best[metric] %}best{% endif %}">{% if value is none %}–{% elif metric == 'Clusters' %}{{ value | int }}{% elif metric == 'Noise %' %}{{ '%.1f' % value }}{% elif metric == 'Calinski-Harabasz' %}{{ '%.1f' % value }}{% else %}{{ '%.3f' % value }}{% endif %}{% if row.best and row.best[metric] %} <i class="bi bi-check-circle-fill" aria-label="best"></i>{% endif %}</td>
+                {% else %}
+                <td class="text-nowrap tabular-nums">{{ value }}</td>
+                {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endmacro %}
+
+{% block content %}
+{% set info = results.info %}
+{% set best = results.best %}
+{{ page_header("Results", "How well each algorithm clusters the data, what the clusters look like and what defines them.", 4, results.automator) }}
+
+<div class="container pb-5">
+    <div class="d-flex flex-wrap gap-2 justify-content-md-end mb-4">
+        <a class="btn btn-primary" href="{{ url_for('download_all') }}"><i class="bi bi-file-earmark-zip me-2" aria-hidden="true"></i>Download all (.zip)</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('clustering') }}"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>New run</a>
+        <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#confirm-delete"
+                {% if job_running %}disabled{% endif %}><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete results</button>
+    </div>
+
+    <p class="small-muted mb-3"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        {{ info.train_samples }} samples · {{ info.numeric | length }} numeric and {{ info.categorical | length }} categorical features
+        ({{ info.encoded_features }} after encoding{% if info.reduction == 'pca' %}, {{ info.model_dimensions }} PCA components{% endif %}) ·
+        {% if info.supervised %}evaluated against {{ info.classes | length }} Target classes{% else %}unsupervised{% endif %} ·
+        k: {% if info.n_clusters == 'auto' %}chosen by {{ info.k_criterion | replace('_', '-') }} from {{ info.k_range[0] }} to {{ info.k_range[-1] }}{% elif info.n_clusters == 'classes' %}number of classes{% else %}{{ info.n_clusters }}{% endif %} ·
+        {% if info.validation == 'kfold' %}{{ info.k_folds }}-fold validation{% else %}no validation{% endif %}{% if info.test_samples %} · {{ info.test_samples }} test samples{% endif %} · {{ info.device }}</p>
+
+    {% if info.skipped %}
+    <div class="alert alert-warning" role="alert">
+        <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>Some algorithms were skipped</div>
+        <ul class="mb-0 small">{% for item in info.skipped %}<li><strong>{{ item.model }}</strong>: {{ item.reason }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    {% if best %}
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">Best algorithm ({{ best.metric }}, {{ info.selection_source }})</div>
+                <div class="value text mt-1">{{ best.model }}</div>
+            </div>
+        </div>
+        <div class="col-4 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">Clusters<span class="d-none d-md-inline small-muted"> (Train.csv)</span></div>
+                <div class="value tabular-nums mt-1">{{ best.clusters }}</div>
+            </div>
+        </div>
+        {% for metric in (['ARI', 'Silhouette'] if info.supervised else ['Silhouette', 'Davies-Bouldin']) %}
+        {% set value = (best.test or best.train).get(metric) %}
+        <div class="col-4 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">{{ metric }}<span class="d-none d-md-inline small-muted"> ({{ 'test' if best.test else 'Train.csv' }})</span></div>
+                <div class="value tabular-nums mt-1">{{ '%.3f' % value if value is not none else '–' }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <ul class="nav nav-underline mb-4 flex-nowrap overflow-auto" role="tablist">
+        {% for key, label, icon in [("metrics", "Metrics", "table"), ("clusters", "Clusters", "intersect"),
+                                     ("explain", "Explainability", "lightbulb"), ("downloads", "Downloads", "download")] %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link text-nowrap {% if loop.first %}active{% endif %}" id="tab-{{ key }}" data-bs-toggle="tab" data-bs-target="#pane-{{ key }}"
+                    type="button" role="tab" aria-controls="pane-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+                <i class="bi bi-{{ icon }} me-1" aria-hidden="true"></i>{{ label }}
+            </button>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="pane-metrics" role="tabpanel" aria-labelledby="tab-metrics" tabindex="0">
+            {% if results.kfold %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Validation (Train.csv): {{ info.k_folds }} held-out folds</span>
+                    <span class="small-muted fw-normal">Mean ± standard deviation across folds</span>
+                </div>
+                {{ metric_table(results.kfold, results.kfold_columns, best.model if best else None, lower, numeric=False) }}
+            </div>
+            {% endif %}
+            {% if results.test %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Test.csv: samples assigned to the clusters of the final models</span>
+                    <span class="small-muted fw-normal"><i class="bi bi-check-circle-fill text-success me-1" aria-hidden="true"></i>Best value per metric</span>
+                </div>
+                {{ metric_table(results.test, results.test_columns, best.model if best else None, lower) }}
+            </div>
+            {% endif %}
+            {% if results.train %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Train.csv: clusters of the final models</span>
+                    <span class="small-muted fw-normal"><i class="bi bi-check-circle-fill text-success me-1" aria-hidden="true"></i>Best value per metric</span>
+                </div>
+                {{ metric_table(results.train, results.columns, best.model if best else None, lower) }}
+            </div>
+            {% endif %}
+            {% if results.metric_plots %}
+            <div class="row g-3 mb-4">{% for item in results.metric_plots %}<div class="col-12">{{ figure(item) }}</div>{% endfor %}</div>
+            {% endif %}
+            <details class="card p-3">
+                <summary class="fw-semibold" style="cursor: pointer">About these metrics</summary>
+                <dl class="row small mt-3 mb-0">
+                    <dt class="col-sm-3">Silhouette</dt><dd class="col-sm-9">From -1 to 1: how much closer each sample is to its own cluster than to the nearest other one. Above 0.5 is a strong structure, around 0.2 a weak one. Noise samples are left out.</dd>
+                    <dt class="col-sm-3">Calinski-Harabasz</dt><dd class="col-sm-9">Between-cluster over within-cluster dispersion (higher is better); compare it between algorithms on the same data only.</dd>
+                    <dt class="col-sm-3">Davies-Bouldin</dt><dd class="col-sm-9">Average similarity of each cluster with its most similar one (0 or more, lower is better).</dd>
+                    {% if info.supervised %}
+                    <dt class="col-sm-3">ARI / AMI / NMI</dt><dd class="col-sm-9">Agreement between the clusters and the Target classes: adjusted Rand index and (adjusted / normalised) mutual information. 0 is chance level, 1 a perfect match; they do not depend on how the clusters are numbered.</dd>
+                    <dt class="col-sm-3">Homogeneity, completeness, V-measure</dt><dd class="col-sm-9">Whether each cluster holds a single class, whether each class falls in a single cluster, and their harmonic mean.</dd>
+                    <dt class="col-sm-3">FMI, purity, accuracy</dt><dd class="col-sm-9">Fowlkes-Mallows index; share of samples in the majority class of their cluster; share of samples whose cluster maps to their class, clusters and classes matched one to one (Hungarian algorithm).</dd>
+                    {% endif %}
+                    <dt class="col-sm-3">Stability</dt><dd class="col-sm-9">ARI between the clusters that a model fitted on the other folds gives to the held-out samples and those of the model fitted on all of Train.csv: are the clusters reproducible?</dd>
+                    <dt class="col-sm-3">Noise</dt><dd class="col-sm-9">Density-based algorithms (DBSCAN, HDBSCAN, OPTICS) leave samples outside every cluster (cluster -1).</dd>
+                </dl>
+            </details>
+        </div>
+
+        <div class="tab-pane fade" id="pane-clusters" role="tabpanel" aria-labelledby="tab-clusters" tabindex="0">
+            {% if results.clusters %}
+            <p class="small-muted">For each algorithm: the clusters of the Train.csv samples in 2D projections (PCA{% if info.tsne %} and t-SNE{% endif %}; clusters numbered by size, 0 the largest), their profiles (the mean of each feature compared with all the samples, in standard deviations){% if info.supervised %}, how the Target classes fall into them{% endif %} and the silhouette of every sample.</p>
+            {% if results.classes_figure %}<div class="mb-3">{{ figure(results.classes_figure) }}</div>{% endif %}
+            <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
+                {% for model in results.clusters %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#cl-{{ loop.index }}" type="button" role="tab"
+                            aria-selected="{{ 'true' if loop.first else 'false' }}">{{ model }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="tab-content">
+                {% for model, item in results.clusters.items() %}
+                <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="cl-{{ loop.index }}" role="tabpanel">
+                    <p class="small-muted mb-2">{{ info.clusters[model] }} cluster{{ 's' if info.clusters[model] != 1 }}{% if info.noise[model] %} · {{ info.noise[model] }}% noise{% endif %}{% if item.setting %} · {{ item.setting }}{% endif %}
+                        {% if item.profile %} · <a href="{{ url_for('download_file', filepath=item.profile) }}">profile table (CSV)</a>{% endif %}</p>
+                    <div class="row g-3">{% for figure_item in item.figures %}<div class="{{ 'col-12' if loop.first else 'col-lg-6' }}">{{ figure(figure_item) }}</div>{% endfor %}</div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No figures were produced.</p>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-explain" role="tabpanel" aria-labelledby="tab-explain" tabindex="0">
+            {% if results.explain %}
+            <p class="small-muted">A random forest is trained to recognise each algorithm's clusters from the features; SHAP values show which features it relies on, for each cluster (stacked bars). The surrogate accuracy (cross-validated) says how faithfully the forest reproduces the clusters: the higher, the more these explanations can be trusted.</p>
+            <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
+                {% for model in results.explain %}
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#shap-{{ loop.index }}" type="button" role="tab"
+                            aria-selected="{{ 'true' if loop.first else 'false' }}">{{ model }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="tab-content">
+                {% for model, item in results.explain.items() %}
+                <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="shap-{{ loop.index }}" role="tabpanel">
+                    {% if item.importance %}<p class="small-muted mb-2">Main features: {% for row in item.importance %}{{ row.feature }}{{ ', ' if not loop.last }}{% endfor %}{% if item.fidelity is not none %} · surrogate accuracy {{ '%.0f' % (100 * item.fidelity) }}%{% endif %}</p>{% endif %}
+                    {{ figure(item) }}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}<p class="small-muted">No explanations were produced.</p>{% endif %}
+            {% if info.notes %}<ul class="small-muted mt-3">{% for note in info.notes %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-downloads" role="tabpanel" aria-labelledby="tab-downloads" tabindex="0">
+            {% if results.tables %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Clusters</div>
+                {{ file_list(results.tables, 'filetype-csv') }}
+            </div>
+            {% endif %}
+            {% if results.models %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Trained models</div>
+                <div class="p-3 small-muted border-bottom">Fitted on all of Train.csv. <a href="#use-models">How to assign new samples</a> is shown below.</div>
+                {{ file_list(results.models, 'box-seam') }}
+            </div>
+            {{ clustering_usage_card(results.models, best.model if best else None, info) }}
+            {% endif %}
+            {{ splits_card(results.splits) }}
+            <div class="card">
+                <div class="card-header py-3">All files <span class="small-muted fw-normal">({{ results.files | length }})</span></div>
+                <div class="table-responsive" style="max-height: 420px">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <tbody>
+                            {% for item in results.files %}
+                            <tr>
+                                <td class="small text-break">{{ item.path }}</td>
+                                <td class="small-muted text-end text-nowrap tabular-nums">{{ filesize(item.size) }}</td>
+                                <td class="text-end"><a href="{{ url_for('download_file', filepath=item.path) }}" aria-label="Download {{ item.path }}"><i class="bi bi-download" aria-hidden="true"></i></a></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="lightbox" tabindex="-1" aria-labelledby="lightbox-title" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h6" id="lightbox-title"></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center"><img class="lightbox-img" alt=""></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="confirm-delete" tabindex="-1" aria-labelledby="confirm-delete-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" action="{{ url_for('clear_files') }}" method="post">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="confirm-delete-title">Delete all results?</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">All metrics, plots, cluster tables and trained models will be permanently deleted. Download them first if you need them.</div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger"><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('[data-copy-target]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var code = document.getElementById(button.getAttribute('data-copy-target')).textContent;
+            var label = button.querySelector('span');
+            navigator.clipboard.writeText(code).then(function () {
+                label.textContent = 'Copied';
+                setTimeout(function () { label.textContent = 'Copy'; }, 1500);
+            }, function () { label.textContent = 'Select and copy'; });
+        });
+    });
+    document.getElementById('lightbox').addEventListener('show.bs.modal', function (event) {
+        var trigger = event.relatedTarget;
+        var image = this.querySelector('.lightbox-img');
+        image.src = trigger.getAttribute('data-src');
+        image.alt = trigger.getAttribute('data-title');
+        this.querySelector('.modal-title').textContent = trigger.getAttribute('data-title');
+    });
+</script>
+{% endblock %}

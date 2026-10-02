@@ -12,10 +12,13 @@ hold-out validation, external test, explanations, exported models and validation
 | `object-detection` | Boxes in 2D images or 3D volumes | zip or folder with COCO / YOLO / VOC / CSV / masks |
 | `image-segmentation` | 2D or 3D masks, incl. the official nnU-Net v2 | zip or folder: `images/` + `masks/`, or nnU-Net raw |
 | `time-series-forecasting` | Forecasting many series with covariates | `Train.csv`, `Test.csv` in long format |
+| `clustering` | Clusters of rows, unsupervised or evaluated against labels | `Train.csv`, optional `Test.csv` |
 
 An agent can also let the server **choose the automator from the data** (`inspect_data`, or `automator="auto"`): a CSV
 with `ID`, `Time` and `Target` is a forecasting problem, a CSV with a `Target` of classes is tabular, class folders
-of images are image classification, `images/` + `masks/` is segmentation, COCO/YOLO/VOC/CSV boxes are detection.
+of images are image classification, `images/` + `masks/` is segmentation, COCO/YOLO/VOC/CSV boxes are detection, a
+CSV without a `Target` (or with text classes) is clustering. For clustering, `test` is optional, and a `Target` column
+turns on the supervised evaluation (ARI, AMI, purity...) without being used to find the clusters.
 
 ## Run it on your computer (Docker)
 
@@ -99,11 +102,11 @@ SIMPLATAB_WORKER_PYTHON=... ../mcp-venv/bin/python -m simplatab_mcp --transport 
 | `inspect_data(train)` | **Which automator** fits a dataset (CSV columns, or the folders and files of a zip/folder), with the reason |
 | `get_data_contract(automator, dim?)` | **The data contract**: layout, formats, column/folder rules, examples, the configuration fields (type, default, choices, range), the models (keys), metrics and output files |
 | `get_server_info` | GPU or CPU, versions, workspace, data folders |
-| `get_example_data(automator, variant)` | A ready-made dataset (2d/3d) and a configuration that runs in minutes on a CPU |
+| `get_example_data(automator, variant)` | A ready-made dataset (2d/3d; clustering: labeled/unlabeled) and a configuration that runs in minutes on a CPU |
 | `upload_file(filename, content_base64, append?)` | Sends a CSV or zip to the server (in chunks for large files) when it cannot read your files |
-| `create_experiment(automator, train, test, name?)` | Copies/extracts the data and checks it as the web upload does: summary, **errors**, warnings, default configuration (`automator="auto"`: chosen from the data) |
+| `create_experiment(automator, train, test?, name?)` | Copies/extracts the data and checks it as the web upload does: summary, **errors**, warnings, default configuration (`automator="auto"`: chosen from the data) |
 | `start_experiment(experiment_id, config?, dry_run?)` | Validates the configuration (defaults for any field left out) and queues the run; `dry_run` only validates |
-| `run_experiment(automator, train, test, config?)` | Both of the above in one call; a configuration error is returned with the experiment id, to fix and call `start_experiment` |
+| `run_experiment(automator, train, test?, config?)` | Both of the above in one call; a configuration error is returned with the experiment id, to fix and call `start_experiment` |
 | `get_experiment(experiment_id)` | State, phase, progress, status of every model, last log lines |
 | `list_experiments` | Every experiment of the workspace |
 | `get_results(experiment_id)` | Test and validation metrics, best model, **validation splits**, trained models, every output file |
@@ -154,7 +157,7 @@ folders, host paths), `status.py`, `results.py`, `examples.py`.
 cd mcp_server
 # worker: contracts, configurations, data checks, automator detection, host paths, a tabular run (Python 3.9 environment)
 SIMPLATAB_PRETRAINED=0 /path/to/simplatab-venv/bin/python -m unittest tests.test_worker
-# MCP client end to end (Python >= 3.10); SIMPLATAB_MCP_ALL=1 also runs every automator on its example (~15-20 min on a CPU)
+# MCP client end to end (Python >= 3.10); SIMPLATAB_MCP_ALL=1 also runs every automator on its example (~20 min on a CPU)
 SIMPLATAB_PRETRAINED=0 SIMPLATAB_MCP_ALL=1 SIMPLATAB_WORKER_PYTHON=/path/to/simplatab-venv/bin/python \
     /path/to/mcp-venv/bin/python -m unittest tests.test_server
 # the Docker image, used over HTTP (host paths) and over stdio (docker exec)

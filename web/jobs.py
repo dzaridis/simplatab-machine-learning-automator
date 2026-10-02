@@ -46,6 +46,13 @@ FORECAST_PHASES = [
     ("done", "Report"),
 ]
 
+CLUSTERING_PHASES = [
+    ("data", "Preparing data"),
+    ("kfold", "Clustering and validation"),
+    ("test", "Test set and explanations"),
+    ("done", "Report"),
+]
+
 _STARTING = re.compile(r"^(.+?) is starting$")
 _COMPLETED = re.compile(r"^(.+?) is completed successfully$")
 _SKIPPED = re.compile(r"^(.+?) failed and was skipped: (.*)$")
@@ -140,7 +147,8 @@ class PipelineJob:
             self.phase = "data"
         elif text.startswith("Preparing images"):
             self.phase = "prep"
-        elif text.startswith(("Training on K-Fold cross validation", "Training on hold-out validation")) and "completed" not in text:
+        elif text.startswith(("Training on K-Fold cross validation", "Training on hold-out validation",
+                              "Clustering Train.csv")) and "completed" not in text:
             self.phase = "kfold"
         elif text.startswith("Evaluating algorithms on"):
             self.phase = "test"

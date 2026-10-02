@@ -581,3 +581,43 @@ classes = segment(image, spacing)[0]
     </div>
 </div>
 {% endmacro %}
+
+
+{# ---- Clustering ---- #}
+
+{% macro clustering_code(model, info) -%}{% autoescape false -%}
+{%- set key = (info.models[model.name] or {}).key -%}
+import pickle
+
+import pandas as pd
+
+with open("Materials/Models/{{ model.file }}", "rb") as f:
+    model = pickle.load(f)  # preprocessing (imputation, scaling, one-hot encoding{% if info.reduction == 'pca' %}, PCA{% endif %}) and {{ model.name }}
+
+data = pd.read_csv("new_samples.csv"{% if info.id_column %}, index_col="{{ info.id_column }}"{% endif %})  # columns of Train.csv; Target not needed
+clusters = pd.DataFrame({"cluster": model.predict(data)}, index=data.index)  # 0 = largest cluster of Train.csv{% if info.noise and info.noise[model.name] %}, -1 = noise{% endif %}
+{% if key in ['gmm', 'bayesian_gmm', 'dec', 'idec', 'dcn', 'vade', 'scarf'] -%}
+memberships = pd.DataFrame(model.predict_proba(data), index=data.index).add_prefix("p_cluster_")
+clusters = clusters.join(memberships)  # soft memberships of every cluster
+{% endif -%}
+print(clusters)
+{%- endautoescape %}{%- endmacro %}
+
+{% macro clustering_usage_card(models, best, info) %}
+{% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
+<div class="card mb-4" id="use-models">
+    <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Assign new samples to the clusters</div>
+    <div class="p-3">
+        <p class="small-muted mt-0">
+            Each <code>.pkl</code> file holds the preprocessing fitted on Train.csv and a clustering model. It runs without Simplatab.
+            The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best algorithm{% endif %}; replace the file name for another one.
+        </p>
+        <h3 class="h6 fw-bold">1. Install</h3>
+        {{ code_block("code-install", "Shell", install_code([chosen.requirements | join(' ')])) }}
+        <h3 class="h6 fw-bold mt-3">2. Assign <span class="small-muted fw-normal">(save as <code>assign.py</code> and run <code>python assign.py</code>)</span></h3>
+        {{ code_block("code-predict", "Python", clustering_code(chosen, info)) }}
+        <p class="small-muted mt-3 mb-0"><code>new_samples.csv</code> has the feature columns of Train.csv (missing values are imputed as in training). The clusters are numbered as in <code>Clusters/train_clusters.csv</code>.
+            The library versions above are the ones that trained the model.</p>
+    </div>
+</div>
+{% endmacro %}

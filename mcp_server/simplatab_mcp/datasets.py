@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .paths import resolve_data_path
 
-CSV_AUTOMATORS = ("tabular", "time-series-forecasting")
+CSV_AUTOMATORS = ("tabular", "time-series-forecasting", "clustering")
+OPTIONAL_TEST = ("clustering",)
 
 
 class DataError(ValueError):
@@ -21,8 +22,13 @@ def prepare_inputs(automator, train, test, input_dir):
     input_dir.mkdir(parents=True, exist_ok=True)
     sources = {}
     for split, value in (("train", train), ("test", test)):
+        if not value and split == "test" and automator in OPTIONAL_TEST:
+            stale = input_dir / "Test.csv"
+            if stale.exists():
+                stale.unlink()
+            continue
         if not value:
-            raise DataError(f"The {split} data is missing.")
+            raise DataError(f"The {split} data is missing" + (" (test is optional for clustering only)." if split == "test" else "."))
         path = resolve_data_path(value)
         sources[split] = str(path)
         if automator in CSV_AUTOMATORS:
@@ -147,8 +153,16 @@ def _forecasting(input_dir):
     return summary, list(summary.get("errors", [])), list(summary.get("warnings", []))
 
 
+def _clustering(input_dir):
+    from Helpers.clustering import data as clustering_data
+    test = input_dir / "Test.csv"
+    summary = clustering_data.summarize(str(input_dir / "Train.csv"), str(test) if test.exists() else None)
+    return summary, list(summary.get("errors", [])), list(summary.get("warnings", []))
+
+
 CHECKS = {"tabular": _tabular, "image-classification": _image, "object-detection": _detection,
-          "image-segmentation": _segmentation, "time-series-forecasting": _forecasting}
+          "image-segmentation": _segmentation, "time-series-forecasting": _forecasting,
+          "clustering": _clustering}
 
 
 def check(automator, input_dir):

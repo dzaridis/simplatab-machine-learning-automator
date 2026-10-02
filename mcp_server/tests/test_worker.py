@@ -50,7 +50,7 @@ class Workspace(unittest.TestCase):
         folder = self.dir / "ws" / "experiments" / "e1"
         folder.mkdir(parents=True)
         (folder / "experiment.json").write_text(json.dumps({"id": "e1", "automator": automator, "train": str(train),
-                                                            "test": str(test)}))
+                                                            "test": str(test) if test else None}))
         return folder
 
 
@@ -75,6 +75,7 @@ class TestContracts(unittest.TestCase):
         self.assertIn("medicalnet_resnet10", {m["key"] for m in contracts.models("image-classification", 3)})
         self.assertTrue({"nnunet_2d", "unet_resnet34"} <= {m["key"] for m in contracts.models("image-segmentation", 2)})
         self.assertTrue({"nnunet_3d", "segresnet"} <= {m["key"] for m in contracts.models("image-segmentation", 3)})
+        self.assertTrue(set(QUICK["clustering"]["models"]) <= {m["key"] for m in contracts.models("clustering")})
 
 
 class TestConfigs(unittest.TestCase):
@@ -106,6 +107,39 @@ class TestConfigs(unittest.TestCase):
         self.assertEqual(defaults["hyperparameter_search"], "randomized")
         params, _ = configs.build("tabular", defaults, self.SUMMARY)  # the defaults are a valid configuration
         self.assertEqual(params["number_of_k_folds"], 5)
+
+
+class TestClusteringConfigs(unittest.TestCase):
+    LABELED = {"train_rows": 600, "has_labels": True, "classes": ["A", "B", "C"], "max_k": 30, "max_folds": 10,
+               "features": ["age", "bmi", "sex"]}
+    UNLABELED = dict(LABELED, has_labels=False, classes=[])
+
+    def test_defaults_follow_the_labels(self):
+        params, names = configs.build("clustering", {}, self.LABELED)
+        self.assertEqual((params["n_clusters"], params["selection_metric"], params["k_folds"]), ("classes", "ARI", 5))
+        self.assertIn("K-Means", names)
+        self.assertIn("IDEC", names)
+        params, _ = configs.build("clustering", {}, self.UNLABELED)
+        self.assertEqual((params["n_clusters"], params["selection_metric"]), ("auto", "Silhouette"))
+        defaults = configs.defaults("clustering", self.LABELED)
+        self.assertEqual(configs.build("clustering", defaults, self.LABELED)[0]["models"], defaults["models"])
+
+    def test_errors(self):
+        for summary, bad, message in (
+                (self.UNLABELED, {"n_clusters": "classes"}, "needs a Target"),
+                (self.LABELED, {"n_clusters": 1}, "between 2 and 30"),
+                (self.LABELED, {"n_clusters": "many"}, "integer"),
+                (self.LABELED, {"k_min": 5, "k_max": 3}, "between 5 and 30"),
+                (self.LABELED, {"ignore_columns": ["height"]}, "ignore_columns"),
+                (self.LABELED, {"ignore_columns": ["age", "bmi", "sex"]}, "no feature"),
+                (self.UNLABELED, {"selection_metric": "ARI"}, "must be one of"),
+                (self.LABELED, {"selection_metric": "Stability (ARI)", "validation": "none"}, "needs validation"),
+                (dict(self.LABELED, train_rows=12000), {"models": ["spectral"]}, "too many")):
+            with self.subTest(config=bad):
+                with self.assertRaisesRegex(configs.ConfigError, message):
+                    configs.build("clustering", bad, summary)
+        params, names = configs.build("clustering", {}, dict(self.LABELED, train_rows=12000))
+        self.assertNotIn("spectral", params["models"])  # defaults leave out the algorithms limited in rows
 
 
 class TestData(Workspace):
@@ -148,7 +182,8 @@ class TestData(Workspace):
 
 EXAMPLES = [("tabular", "2d"), ("time-series-forecasting", "2d"), ("image-classification", "2d"),
             ("image-classification", "3d"), ("object-detection", "2d"), ("object-detection", "3d"),
-            ("image-segmentation", "2d"), ("image-segmentation", "3d")]
+            ("image-segmentation", "2d"), ("image-segmentation", "3d"), ("clustering", "labeled"),
+            ("clustering", "unlabeled")]
 
 
 class TestDetect(Workspace):
@@ -168,11 +203,13 @@ class TestDetect(Workspace):
         data = self.dir / "data"
         (data / "loose").mkdir(parents=True)
         (data / "loose" / "notes.txt").write_text("x")
-        (data / "values.csv").write_text("a,b\n1,2\n")
-        for path in ("loose", "values.csv"):
+        (data / "ids.csv").write_text("ID\n1\n")
+        for path in ("loose", "ids.csv"):
             found = inspect(path)
             self.assertIsNone(found["suggested_automator"])
             self.assertTrue(found["notes"])
+        (data / "values.csv").write_text("a,b\n1,2\n")
+        self.assertEqual(inspect("values.csv")["suggested_automator"], "clustering")  # no Target: clustering
 
 
 class TestHostPaths(unittest.TestCase):
@@ -222,6 +259,34 @@ class TestRun(Workspace):
         self.assertGreater(results["test_metrics"][0]["AUC"], 0.9)
         self.assertEqual([f["fold"] for f in results["splits"]["folds"]], [1, 2])
         self.assertIn("Models/Logistic Regression_pipeline.pkl", results["models"])
+
+    def test_clustering_run_without_test(self):
+        example = self.worker("example", "--automator", "clustering", "--variant", "unlabeled")
+        folder = self.experiment("clustering", example["train"], None)
+        prepared = self.worker("prepare", "--experiment", str(folder))
+        self.assertEqual(prepared["errors"], [])
+        self.assertFalse(prepared["summary"]["has_labels"])
+        self.assertFalse(prepared["summary"]["has_test"])
+        self.assertEqual(prepared["default_config"]["n_clusters"], "auto")
+        configured = self.worker("configure", "--experiment", str(folder), "--config",
+                                 json.dumps({"models": ["kmeans", "hdbscan"], "k_folds": 2, "k_max": 6, "tsne": False}))
+        self.assertEqual(configured["model_names"], ["K-Means", "HDBSCAN"])
+        meta = json.loads((folder / "experiment.json").read_text())
+        meta.update(params=configured["params"], model_names=configured["model_names"])
+        (folder / "experiment.json").write_text(json.dumps(meta))
+        result = self.worker("run", "--experiment", str(folder))
+        self.assertEqual(result["state"], "completed", result)
+        status = json.loads((folder / "status.json").read_text())
+        self.assertEqual(status["progress"], 100)
+        self.assertTrue(all(m["validation"] == m["test"] == "done" for m in status["models"]), status)
+        results = json.loads((folder / "results.json").read_text())
+        self.assertEqual(results["test_metrics"], [])
+        self.assertEqual({r["model"] for r in results["train_metrics"]}, {"K-Means", "HDBSCAN"})
+        self.assertEqual(results["metric_direction"]["Davies-Bouldin"], "lower")
+        self.assertIn(results["best_model"], {"K-Means", "HDBSCAN"})
+        self.assertEqual([f["fold"] for f in results["splits"]["folds"]], [1, 2])
+        self.assertIn("Models/K-Means.pkl", results["models"])
+        self.assertTrue(any(f["path"] == "Clusters/train_clusters.csv" for f in results["files"]))
 
 
 if __name__ == "__main__":
