@@ -19,6 +19,11 @@ class Automator:
     icon: str                      # Bootstrap Icons name
     status: str                    # "available" | "coming_soon"
     endpoint: Optional[str] = None  # Flask endpoint of an available automator
+    # Landing page card: what you can do with it, the data it takes, its models and explanations
+    use_case: str = ""
+    data: str = ""
+    models_short: str = ""
+    explains: str = ""
     inputs: List[str] = field(default_factory=list)
     steps: List[str] = field(default_factory=list)
     outputs: List[str] = field(default_factory=list)
@@ -32,7 +37,7 @@ AUTOMATORS = [
     Automator(
         slug="tabular",
         name="Tabular Classification",
-        tagline="Binary and multiclass classification from CSV files",
+        tagline="Predict a class from table rows",
         description=(
             "Train, validate and explain classical machine learning and deep learning "
             "classifiers on tabular data, from data bias assessment to SHAP explanations."
@@ -40,6 +45,10 @@ AUTOMATORS = [
         icon="table",
         status="available",
         endpoint="tabular",
+        use_case="e.g. a diagnosis or an outcome from clinical variables",
+        data="Train.csv + Test.csv",
+        models_short="11 models: XGBoost to TabPFNv2",
+        explains="SHAP",
         inputs=[
             "Train.csv and Test.csv with the same feature columns",
             "A numeric Target column with classes numbered 0, 1, ..., K-1",
@@ -63,7 +72,7 @@ AUTOMATORS = [
     Automator(
         slug="image-classification",
         name="Image Classification",
-        tagline="Deep learning classifiers for medical images, 2D and 3D",
+        tagline="Classify 2D images or 3D scans",
         description=(
             "Train, validate and explain ten state-of-the-art pretrained CNNs and vision transformers "
             "on DICOM, NIfTI, PNG or JPEG images, or eighteen 3D networks on studies made of one or more "
@@ -72,6 +81,10 @@ AUTOMATORS = [
         icon="images",
         status="available",
         endpoint="image",
+        use_case="e.g. benign vs. malignant on X-ray, CT or MRI",
+        data="Zips with one folder per class",
+        models_short="10 2D and 18 3D networks",
+        explains="Grad-CAM",
         inputs=[
             "Train.zip and Test.zip with one folder per class (up to 5 GB each)",
             "DICOM (including compressed and multi-frame), NIfTI, PNG (8/16-bit), JPEG, BMP, TIFF",
@@ -98,7 +111,7 @@ AUTOMATORS = [
     Automator(
         slug="object-detection",
         name="Object Detection",
-        tagline="Locate and classify objects in 2D images and 3D volumes",
+        tagline="Find and box objects in images or volumes",
         description=(
             "Fine-tune, validate and explain ten pretrained detectors (Faster R-CNN to RT-DETRv2 and D-FINE) "
             "on boxes drawn on medical or other images, including CT and MR volumes."
@@ -106,6 +119,10 @@ AUTOMATORS = [
         icon="bounding-box",
         status="available",
         endpoint="detection",
+        use_case="e.g. locate nodules on chest X-rays or CT",
+        data="Images + boxes (COCO, YOLO, VOC, CSV)",
+        models_short="10 pretrained detectors",
+        explains="D-RISE maps",
         inputs=[
             "Train.zip and Test.zip: images or volumes with their boxes (up to 5 GB each)",
             "Annotations in COCO JSON, YOLO, Pascal VOC, CSV (2D or 3D boxes) or masks",
@@ -127,7 +144,7 @@ AUTOMATORS = [
     Automator(
         slug="image-segmentation",
         name="Image Segmentation",
-        tagline="Delineate structures in medical and natural images, 2D and 3D",
+        tagline="Outline structures pixel by pixel, 2D or 3D",
         description=(
             "Train, validate and compare segmentation networks, from the official self-configuring nnU-Net to "
             "pretrained U-Nets, SegFormer and 3D transformers, on images or volumes and their masks, with "
@@ -136,6 +153,10 @@ AUTOMATORS = [
         icon="bounding-box-circles",
         status="available",
         endpoint="segmentation",
+        use_case="e.g. delineate organs or tumours",
+        data="Images + masks",
+        models_short="nnU-Net v2 and 18 networks",
+        explains="Uncertainty maps",
         inputs=[
             "Train.zip and Test.zip with an images/ and a masks/ folder (or the nnU-Net layout)",
             "2D: PNG, JPEG, TIFF, DICOM, NIfTI; 3D: NIfTI, DICOM series, several series per case",
@@ -158,7 +179,7 @@ AUTOMATORS = [
     Automator(
         slug="time-series-forecasting",
         name="Time Series Forecasting",
-        tagline="Forecast the next values of time series, such as repeated measurements of patients",
+        tagline="Forecast the next values of many time series",
         description=(
             "Train, validate and explain ten state-of-the-art deep learning forecasters (neuralforecast) "
             "on many series at once, with static, past and future covariates and rolling-origin validation."
@@ -166,6 +187,10 @@ AUTOMATORS = [
         icon="graph-up-arrow",
         status="available",
         endpoint="forecasting",
+        use_case="e.g. a patient's next glucose readings",
+        data="Long-format Train.csv + Test.csv",
+        models_short="10 neural forecasters",
+        explains="Integrated gradients",
         inputs=[
             "Train.csv and Test.csv in long format: one row per series and time point (ID, Time, Target)",
             "Optional covariates: static (e.g. sex), past (e.g. another measurement) or known in advance (e.g. a dose)",
@@ -187,7 +212,7 @@ AUTOMATORS = [
     Automator(
         slug="clustering",
         name="Clustering",
-        tagline="Find groups in tabular data, with or without labels to check them against",
+        tagline="Find groups in a table, with or without labels",
         description=(
             "Cluster the rows of a table with twelve classical algorithms (k-means to HDBSCAN) and six deep and "
             "neural ones (DEC, IDEC, DCN, VaDE, SCARF, self-organising maps), validate them across folds and "
@@ -196,6 +221,10 @@ AUTOMATORS = [
         icon="intersect",
         status="available",
         endpoint="clustering",
+        use_case="e.g. discover patient subtypes",
+        data="Train.csv (Target and Test.csv optional)",
+        models_short="18 algorithms, classical to deep",
+        explains="Profiles + SHAP",
         inputs=[
             "Train.csv (and an optional Test.csv) with one row per sample",
             "Numeric and categorical features; missing values are imputed",

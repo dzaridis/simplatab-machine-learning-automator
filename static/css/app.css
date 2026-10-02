@@ -152,6 +152,9 @@ a { text-underline-offset: 2px; }
 .automator-card:hover { transform: translateY(-3px); box-shadow: var(--sb-shadow-lg); border-color: rgba(var(--sb-brand-rgb), .45); }
 .automator-card .stretched-link:focus-visible::after { outline: 3px solid rgba(var(--sb-brand-rgb), .45); border-radius: var(--bs-border-radius-lg); }
 .automator-card.soon { background: color-mix(in srgb, var(--sb-surface) 70%, var(--sb-page)); }
+.automator-facts { list-style: none; padding: 0; display: grid; gap: .35rem; font-size: .9rem; color: var(--sb-ink-2); }
+.automator-facts li { display: flex; gap: .5rem; align-items: baseline; }
+.automator-facts i { color: var(--sb-brand); }
 .status-pill { display: inline-flex; align-items: center; gap: .35rem; font-size: .75rem; font-weight: 600; padding: .25rem .6rem; border-radius: 999px; border: 1px solid transparent; }
 .status-pill.available { color: var(--sb-good-text); background: rgba(12, 163, 12, .10); border-color: rgba(12, 163, 12, .25); }
 .status-pill.soon { color: var(--sb-ink-2); background: var(--sb-surface-2); border-color: var(--sb-border); }

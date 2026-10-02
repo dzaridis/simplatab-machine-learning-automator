@@ -6,50 +6,31 @@
     <div class="container">
         <div class="row align-items-center g-4 g-lg-5">
             <div class="col-lg-7">
-                <div class="eyebrow mb-3">Automated &amp; explainable machine learning</div>
+                <div class="eyebrow mb-3">No-code machine learning for research</div>
                 <h1 class="mb-4">From research data to <span class="accent">validated, explainable</span> models.</h1>
-                <p class="lead-muted mb-4 col-xl-11">
-                    Simplatab runs the complete machine learning workflow for you, on tabular data and
-                    medical images: data checks, model training with cross-validation, external testing
-                    and explainability. No code required.
-                </p>
+                <p class="lead-muted mb-4 col-xl-11">Choose an automator, upload your data, and get models that are cross-validated, tested on your own test set and explained.</p>
                 <div class="d-flex flex-wrap gap-2 mb-4">
-                    <a class="btn btn-primary btn-lg" href="{{ url_for('tabular') }}">
-                        <i class="bi bi-table me-2" aria-hidden="true"></i>Tabular data
-                    </a>
-                    <a class="btn btn-primary btn-lg" href="{{ url_for('image') }}">
-                        <i class="bi bi-images me-2" aria-hidden="true"></i>Medical images
-                    </a>
-                    <a class="btn btn-outline-primary btn-lg" href="#automators">Explore automators</a>
+                    <a class="btn btn-primary btn-lg" href="#automators"><i class="bi bi-grid me-2" aria-hidden="true"></i>Choose an automator</a>
                 </div>
                 <div class="trust-row">
-                    <span><i class="bi bi-shield-check me-1" aria-hidden="true"></i>Data bias assessment</span>
-                    <span><i class="bi bi-lightbulb me-1" aria-hidden="true"></i>SHAP and Grad-CAM explainability</span>
-                    <span><i class="bi bi-hdd-network me-1" aria-hidden="true"></i>Self-hosted</span>
+                    <span><i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Validated</span>
+                    <span><i class="bi bi-lightbulb me-1" aria-hidden="true"></i>Explainable</span>
+                    <span><i class="bi bi-hdd-network me-1" aria-hidden="true"></i>Self-hosted: your data stays here</span>
+                    <span><i class="bi bi-mortarboard me-1" aria-hidden="true"></i>For non-commercial research</span>
                 </div>
             </div>
-            <div class="col-lg-5">
+            <div class="col-lg-5 d-none d-md-block">
                 <div class="hero-panel">
-                    <div class="d-flex align-items-center justify-content-between px-1 pb-2">
-                        <span class="fw-semibold">A run in four steps</span>
-                        <span class="status-pill available"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Tabular · Images</span>
-                    </div>
+                    <div class="fw-semibold px-1 pb-2">Every run, four steps</div>
+                    {% for title, text in [("Upload", "Your training data (and test data), checked before anything runs."),
+                                           ("Configure", "Pick models and validation; defaults work."),
+                                           ("Run", "Follow each model live."),
+                                           ("Explore", "Metrics, figures, explanations, trained models.")] %}
                     <div class="hero-step">
-                        <span class="num">1</span>
-                        <div><div class="fw-semibold">Upload</div><div class="small-muted">A training and a test set (CSV files or zipped images), checked in your browser before upload.</div></div>
+                        <span class="num">{{ loop.index }}</span>
+                        <div><div class="fw-semibold">{{ title }}</div><div class="small-muted">{{ text }}</div></div>
                     </div>
-                    <div class="hero-step">
-                        <span class="num">2</span>
-                        <div><div class="fw-semibold">Configure</div><div class="small-muted">Pick models or networks and validation settings, each one explained.</div></div>
-                    </div>
-                    <div class="hero-step">
-                        <span class="num">3</span>
-                        <div><div class="fw-semibold">Run</div><div class="small-muted">Follow every model live, from K-fold training to the external test.</div></div>
-                    </div>
-                    <div class="hero-step">
-                        <span class="num">4</span>
-                        <div><div class="fw-semibold">Explore</div><div class="small-muted">Compare metrics and curves, SHAP plots or Grad-CAM heatmaps; download the trained models.</div></div>
-                    </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -58,28 +39,28 @@
 
 <section class="section" id="automators" aria-labelledby="automators-title">
     <div class="container">
-        <div class="mb-4 col-lg-8">
+        <div class="mb-4">
             <div class="eyebrow mb-2">Automators</div>
-            <h2 class="section-title" id="automators-title">One platform, one workflow per kind of data</h2>
-            <p class="lead-muted mb-0">Each automator applies the same rigour (validation, external testing and explainability) to a different kind of data.</p>
+            <h2 class="section-title mb-0" id="automators-title">What do you want to do?</h2>
         </div>
         <div class="row g-4">
             {% for item in automators %}
-            <div class="col-md-6 col-xl-3">
+            <div class="col-md-6 col-xl-4">
                 <div class="card automator-card d-flex flex-column {% if not item.available %}soon{% endif %}">
-                    <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div class="d-flex align-items-center gap-3 mb-3">
                         <span class="icon-badge {% if not item.available %}muted{% endif %}"><i class="bi bi-{{ item.icon }}" aria-hidden="true"></i></span>
-                        {% if item.available %}
-                        <span class="status-pill available"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>Available</span>
-                        {% else %}
-                        <span class="status-pill soon"><i class="bi bi-clock" aria-hidden="true"></i>Coming soon</span>
-                        {% endif %}
+                        <h3 class="h5 fw-bold mb-0">{{ item.name }}</h3>
+                        {% if not item.available %}<span class="status-pill soon ms-auto"><i class="bi bi-clock" aria-hidden="true"></i>Soon</span>{% endif %}
                     </div>
-                    <h3 class="h5 fw-bold mb-1">{{ item.name }}</h3>
-                    <p class="small-muted mb-2">{{ item.tagline }}</p>
-                    <p class="mb-3" style="font-size:.95rem">{{ item.description }}</p>
+                    <p class="fw-semibold mb-1">{{ item.tagline }}</p>
+                    {% if item.use_case %}<p class="small-muted mb-3">{{ item.use_case }}</p>{% endif %}
+                    <ul class="automator-facts mb-3">
+                        {% if item.data %}<li><i class="bi bi-upload" aria-hidden="true"></i><span class="visually-hidden">Data: </span>{{ item.data }}</li>{% endif %}
+                        {% if item.models_short %}<li><i class="bi bi-cpu" aria-hidden="true"></i><span class="visually-hidden">Models: </span>{{ item.models_short }}</li>{% endif %}
+                        {% if item.explains %}<li><i class="bi bi-lightbulb" aria-hidden="true"></i><span class="visually-hidden">Explanations: </span>{{ item.explains }}</li>{% endif %}
+                    </ul>
                     <a class="stretched-link fw-semibold mt-auto" href="{{ url_for('automator', slug=item.slug) }}">
-                        {% if item.available %}Start now{% else %}See what's planned{% endif %}<i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+                        {% if item.available %}Start<span class="visually-hidden"> {{ item.name }}</span>{% else %}See what's planned{% endif %}<i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
                     </a>
                 </div>
             </div>
@@ -88,85 +69,24 @@
     </div>
 </section>
 
-<section class="section pt-0" aria-labelledby="how-title">
-    <div class="container">
-        <div class="mb-4 col-lg-8">
-            <div class="eyebrow mb-2">How it works</div>
-            <h2 class="section-title" id="how-title">A complete, reproducible pipeline</h2>
-            <p class="lead-muted mb-0">What the tabular automator does after you press Run. The image automator follows the same steps, with medical image preparation, pretrained 2D or 3D networks and Grad-CAM; the forecasting automator with rolling-origin validation and integrated gradients; the detection automator with pretrained detectors, K-fold or hold-out validation and D-RISE; the segmentation automator with nnU-Net and U-Net-family networks, Dice and surface-distance metrics and uncertainty maps.</p>
-        </div>
-        <div class="row g-4">
-            <div class="col-md-6 col-lg-3">
-                <div class="card flow-step">
-                    <div class="num mb-2">STEP 1</div>
-                    <h3 class="h6 fw-bold">Check the data</h3>
-                    <p class="small-muted mb-0">Validates the target and the columns, removes incomplete rows and, if you ask, assesses bias with respect to a chosen feature.</p>
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="card flow-step">
-                    <div class="num mb-2">STEP 2</div>
-                    <h3 class="h6 fw-bold">Select and prepare features</h3>
-                    <p class="small-muted mb-0">Drops highly correlated features, keeps the most informative ones, standardises numeric and one-hot encodes categorical features.</p>
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="card flow-step">
-                    <div class="num mb-2">STEP 3</div>
-                    <h3 class="h6 fw-bold">Train and validate</h3>
-                    <p class="small-muted mb-0">Tunes each model with stratified K-fold cross-validation and finds the decision threshold that optimises your chosen metric.</p>
-                </div>
-            </div>
-            <div class="col-md-6 col-lg-3">
-                <div class="card flow-step">
-                    <div class="num mb-2">STEP 4</div>
-                    <h3 class="h6 fw-bold">Test and explain</h3>
-                    <p class="small-muted mb-0">Retrains on all of Train.csv, evaluates on the unseen Test.csv and explains each model's predictions with SHAP.</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
 <section class="section pt-0" aria-labelledby="features-title">
     <div class="container">
         <div class="card p-4 p-lg-5">
-            <div class="mb-4 col-lg-8">
-                <div class="eyebrow mb-2">What you get</div>
-                <h2 class="section-title" id="features-title">Everything needed to report a model, in one run</h2>
-            </div>
+            <h2 class="section-title mb-4" id="features-title">Included in every automator</h2>
             <div class="row g-4">
-                {% set features = [
-                    ("shield-check", "Data bias assessment", "Detects imbalances in the outcome across groups of a sensitive feature."),
-                    ("funnel", "Automated feature selection", "Correlation filtering and model-based selection, then preprocessing."),
-                    ("cpu", "11 tabular models, 10 image networks", "From XGBoost and TabPFNv2 to ConvNeXt V2, Swin, MaxViT and DINOv2."),
-                    ("sliders", "Hyperparameter search", "Randomized or exhaustive search, scored by cross-validated AUC."),
-                    ("bullseye", "Threshold optimisation", "Chooses the decision threshold on the validation folds, not on the test set."),
-                    ("clipboard-data", "Internal and external metrics", "AUC, F-score, accuracy, sensitivity, specificity and balanced accuracy."),
-                    ("lightbulb", "Explainability", "SHAP plots for tabular models, Grad-CAM heatmaps for image networks, uncertainty maps for segmentations."),
-                    ("box-seam", "Reusable models", "Download trained models, preprocessing included, to predict on new data."),
+                {% for icon, title, text in [
+                    ("shield-check", "Data checks", "Problems are reported before anything runs."),
+                    ("diagram-3", "Validation", "K-fold or hold-out, then your test set; the splits are saved."),
+                    ("lightbulb", "Explanations", "See what drives each model's output."),
+                    ("box-seam", "Reusable models", "Download the trained models with the code to use them."),
                 ] %}
-                {% for icon, title, text in features %}
-                <div class="col-md-6 col-lg-3">
+                <div class="col-sm-6 col-lg-3">
                     <div class="feature">
                         <span class="icon-badge"><i class="bi bi-{{ icon }}" aria-hidden="true"></i></span>
                         <div><h3>{{ title }}</h3><p>{{ text }}</p></div>
                     </div>
                 </div>
                 {% endfor %}
-            </div>
-        </div>
-    </div>
-</section>
-
-<section class="section pt-0">
-    <div class="container">
-        <div class="card p-4 p-lg-5 text-center" style="background: var(--sb-brand-soft); border-color: rgba(var(--sb-brand-rgb), .25);">
-            <h2 class="section-title mb-2">Ready to train your first models?</h2>
-            <p class="lead-muted mb-4">You only need a training set and a test set: two CSV files, or two zip files of images with one folder per class.</p>
-            <div class="d-flex flex-wrap gap-2 justify-content-center">
-                <a class="btn btn-primary btn-lg" href="{{ url_for('tabular') }}"><i class="bi bi-table me-2" aria-hidden="true"></i>Tabular data</a>
-                <a class="btn btn-primary btn-lg" href="{{ url_for('image') }}"><i class="bi bi-images me-2" aria-hidden="true"></i>Medical images</a>
             </div>
         </div>
     </div>
