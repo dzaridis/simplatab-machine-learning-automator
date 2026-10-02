@@ -32,6 +32,13 @@ DETECTION_PHASES = [
     ("done", "Report"),
 ]
 
+SEGMENTATION_PHASES = [
+    ("prep", "Preparing images"),
+    ("kfold", "Validation"),
+    ("test", "External test"),
+    ("done", "Report"),
+]
+
 FORECAST_PHASES = [
     ("data", "Preparing data"),
     ("kfold", "Rolling-origin validation"),

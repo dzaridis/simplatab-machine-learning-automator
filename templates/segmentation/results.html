@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header, filesize %}
+{% from "_usage.html" import segmentation_usage_card %}
+{% block title %}Results · Image Segmentation{% endblock %}
+
+{% macro figure(item, wide=false) %}
+<div class="card figure-card {% if wide %}wide{% endif %} h-100">
+    <button type="button" class="thumb" data-bs-toggle="modal" data-bs-target="#lightbox"
+            data-src="{{ url_for('material', filepath=item.path) }}" data-title="{{ item.title }}"
+            aria-label="Enlarge: {{ item.title }}">
+        <img src="{{ url_for('material', filepath=item.path) }}" alt="{{ item.title }}" loading="lazy">
+    </button>
+    <div class="caption">
+        <span class="text-truncate">{{ item.title }}</span>
+        <a href="{{ url_for('download_file', filepath=item.path) }}" class="text-body-secondary" aria-label="Download {{ item.title }}"
+           data-bs-toggle="tooltip" data-bs-title="Download"><i class="bi bi-download" aria-hidden="true"></i></a>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro pills(prefix, groups, columns) %}
+<ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
+    {% for model in groups %}
+    <li class="nav-item" role="presentation">
+        <button class="nav-link {% if loop.first %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#{{ prefix }}-{{ loop.index }}" type="button" role="tab"
+                aria-selected="{{ 'true' if loop.first else 'false' }}">{{ model }}</button>
+    </li>
+    {% endfor %}
+</ul>
+<div class="tab-content">
+    {% for model, items in groups.items() %}
+    <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="{{ prefix }}-{{ loop.index }}" role="tabpanel">
+        <div class="row g-3">{% for item in items %}<div class="{{ columns }}">{{ figure(item, true) }}</div>{% endfor %}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endmacro %}
+
+{% block content %}
+{% set info = results.info %}
+{% set unit = 'volume' if info.dim == 3 else 'image' %}
+{% set metrics = results.metrics %}
+{{ page_header("Results", "Segmentation performance on the validation and on the external test set, with the predicted masks and their uncertainty.", 4, results.automator) }}
+
+<div class="container pb-5">
+    <div class="d-flex flex-wrap gap-2 justify-content-md-end mb-4">
+        <a class="btn btn-primary" href="{{ url_for('download_all') }}"><i class="bi bi-file-earmark-zip me-2" aria-hidden="true"></i>Download all (.zip)</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('segmentation') }}"><i class="bi bi-plus-lg me-2" aria-hidden="true"></i>New run</a>
+        <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#confirm-delete"
+                {% if job_running %}disabled{% endif %}><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete results</button>
+    </div>
+
+    <p class="small-muted mb-3"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+        {{ info.dim }}D · {{ info.classes | length - 1 }} class{{ 'es' if info.classes | length != 2 }} ({{ info.classes[1:] | join(', ') }}) ·
+        {{ info.channels }} channel{{ 's' if info.channels != 1 }}{% if info.channel_names %} ({{ info.channel_names | join(', ') }}){% endif %} ·
+        {{ 'hold-out validation (' ~ ((info.holdout_fraction or 0.2) * 100) | round | int ~ '%)' if info.validation == 'holdout' else info.k_folds ~ '-fold cross-validation' }} ·
+        {{ info.train_cases }} training and {{ info.test_cases }} test cases · {{ info.device }}{% if info.unreadable_cases %} · {{ info.unreadable_cases }} unreadable case(s) skipped{% endif %}</p>
+
+    {% if info.skipped %}
+    <div class="alert alert-warning" role="alert">
+        <div class="fw-semibold mb-1"><i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>Some networks were skipped</div>
+        <ul class="mb-0 small">{% for item in info.skipped %}<li><strong>{{ item.model }}</strong>: {{ item.reason }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    {% if results.best %}
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">Best network on the test set (Dice)</div>
+                <div class="value text mt-1">{{ results.best.model }}</div>
+            </div>
+        </div>
+        {% for metric in ["Dice", "IoU", "HD95"] %}
+        {% set value = results.best["values"][metric] %}
+        <div class="col-4 col-xl-3">
+            <div class="card stat-tile">
+                <div class="label">{{ metric }}<span class="d-none d-md-inline small-muted"> (test, best){% if metric == 'HD95' %} · {{ info.unit }}{% endif %}</span></div>
+                <div class="value tabular-nums mt-1">{{ ('%.2f' if metric == 'HD95' else '%.3f') % value if value == value else '–' }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <ul class="nav nav-underline mb-4 flex-nowrap overflow-auto" role="tablist">
+        {% for key, label, icon in [("metrics", "Metrics", "table"), ("plots", "Plots", "bar-chart"), ("overlays", "Masks & uncertainty", "layers"),
+                                     ("downloads", "Downloads", "download")] %}
+        <li class="nav-item" role="presentation">
+            <button class="nav-link text-nowrap {% if loop.first %}active{% endif %}" id="tab-{{ key }}" data-bs-toggle="tab" data-bs-target="#pane-{{ key }}"
+                    type="button" role="tab" aria-controls="pane-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+                <i class="bi bi-{{ icon }} me-1" aria-hidden="true"></i>{{ label }}
+            </button>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="pane-metrics" role="tabpanel" aria-labelledby="tab-metrics" tabindex="0">
+            {% for title, rows, numeric in [("External test set (Test.zip)", results.test, true),
+                                             ("Hold-out validation (Train.zip)" if info.validation == 'holdout' else "Internal " ~ info.k_folds ~ "-fold cross-validation (Train.zip)", results.validation, false)] if rows %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>{{ title }}</span>
+                    <span class="small-muted fw-normal">{% if numeric %}<i class="bi bi-check-circle-fill text-success me-1" aria-hidden="true"></i>Best value per metric · mean over the cases and classes{% elif info.validation != 'holdout' %}Mean ± standard deviation across folds{% endif %}</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table metric-table">
+                        <thead><tr><th scope="col">Network</th>{% for m in metrics %}<th scope="col" class="text-nowrap">{{ m }}{% if m in results.lower %} <span class="fw-normal">({{ info.unit }}, ↓)</span>{% endif %}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr class="{% if numeric and results.best and row.model == results.best.model %}is-best{% endif %}">
+                                <th scope="row" class="fw-semibold text-body text-nowrap" style="text-transform:none; letter-spacing:0; font-size:.9rem">{{ row.model }}</th>
+                                {% for m in metrics %}
+                                {% set value = row["values"][m] %}
+                                {% if numeric %}
+                                <td class="tabular-nums {% if row.best[m] %}best{% endif %}">{{ ('%.2f' if m in results.lower else '%.3f') % value if value == value else '–' }}{% if row.best[m] %} <i class="bi bi-check-circle-fill" aria-label="best"></i>{% endif %}</td>
+                                {% else %}<td class="text-nowrap tabular-nums">{{ value if value not in ('nan', 'nan ± nan') else '–' }}</td>{% endif %}
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+            {% if results.per_class %}
+            {% set class_names = info.classes[1:] %}
+            <div class="card mb-4">
+                <div class="card-header py-3 d-flex flex-wrap justify-content-between gap-2">
+                    <span>Test Dice per class</span>
+                    <span class="small-muted fw-normal">Mean over the test cases</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table metric-table">
+                        <thead><tr><th scope="col">Network</th>{% for c in class_names %}<th scope="col" class="text-nowrap">{{ c }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                            {% for row in results.per_class %}
+                            <tr>
+                                <th scope="row" class="fw-semibold text-body text-nowrap" style="text-transform:none; letter-spacing:0; font-size:.9rem">{{ row.model }}</th>
+                                {% for c in class_names %}{% set value = row["values"].get(c, none) %}
+                                <td class="tabular-nums">{{ '%.3f' % value if value is not none and value == value else '–' }}</td>{% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+            <details class="card p-3">
+                <summary class="fw-semibold" style="cursor: pointer">About these metrics</summary>
+                <dl class="row small mt-3 mb-0">
+                    <dt class="col-sm-3">Dice</dt><dd class="col-sm-9">Overlap of the predicted and true masks of a class: twice the shared {{ 'voxels' if info.dim == 3 else 'pixels' }} over the sum of both masks, from 0 to 1 (perfect). Each metric is computed per case and class, then averaged; a class absent from both the reference and the prediction of a case is left out.</dd>
+                    <dt class="col-sm-3">IoU</dt><dd class="col-sm-9">Intersection over union (Jaccard index): shared {{ 'voxels' if info.dim == 3 else 'pixels' }} over the union of both masks.</dd>
+                    <dt class="col-sm-3">HD95</dt><dd class="col-sm-9">95th percentile of the distances between the boundaries of the predicted and true masks, in {{ 'millimetres' if info.unit == 'mm' else 'pixels' }}: the largest boundary error, ignoring the worst 5%. Lower is better; undefined when either mask is empty.</dd>
+                    <dt class="col-sm-3">ASSD</dt><dd class="col-sm-9">Average symmetric surface distance between both boundaries, in {{ 'millimetres' if info.unit == 'mm' else 'pixels' }}. Lower is better.</dd>
+                    <dt class="col-sm-3">Sensitivity</dt><dd class="col-sm-9">Share of the true mask that is predicted (recall).</dd>
+                    <dt class="col-sm-3">Precision</dt><dd class="col-sm-9">Share of the predicted mask that is true.</dd>
+                </dl>
+            </details>
+        </div>
+
+        <div class="tab-pane fade" id="pane-plots" role="tabpanel" aria-labelledby="tab-plots" tabindex="0">
+            {% if results.plots %}
+            <div class="row g-3">{% for item in results.plots %}<div class="{{ item.columns }}">{{ figure(item, item.columns == 'col-12') }}</div>{% endfor %}</div>
+            {% else %}<p class="small-muted">No plots were produced.</p>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-overlays" role="tabpanel" aria-labelledby="tab-overlays" tabindex="0">
+            {% if results.overlays %}
+            <p class="small-muted">The worst, median and best test cases of each network (by Dice): the image, the reference and predicted masks, and the uncertainty map, the entropy of the class probabilities averaged over {{ 'the test-time flips' if info.tta else 'the prediction' }} (0: certain, 1: no preference between the classes).
+                {% if info.dim == 3 %}Each volume is shown at the slice with the largest reference mask.{% endif %}</p>
+            {{ pills('ovl', results.overlays, 'col-12') }}
+            {% else %}<p class="small-muted">No overlay was produced.</p>{% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="pane-downloads" role="tabpanel" aria-labelledby="tab-downloads" tabindex="0">
+            {% if results.models %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Trained networks</div>
+                <div class="p-3 small-muted border-bottom">{{ 'Trained on all of Train.zip.' if info.validation != 'holdout' else 'Trained on the training part of Train.zip (hold-out).' }} <a href="#use-models">How to use them on new images</a> is shown below.</div>
+                <ul class="list-group list-group-flush">
+                    {% for item in results.models %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                        <span><i class="bi bi-box-seam me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ 'nnU-Net v2 (' ~ item.configuration ~ ')' if item.library == 'nnunet' else 'TorchScript' }} · {{ filesize(item.size) }}</span></span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {{ segmentation_usage_card(results.models, results.best.model if results.best else None, info) }}
+            {% endif %}
+            {% if results.predictions %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Predicted test masks</div>
+                <div class="p-3 small-muted border-bottom">One {{ 'NIfTI file' if info.dim == 3 else 'PNG' }} per test case, with the {{ 'colours' if info.mask_values and info.mask_values[0] is iterable and info.mask_values[0] is not string else 'values' }} of the training masks{% if info.dim == 3 %}, on the grid of the case's first series{% endif %}.</div>
+                <ul class="list-group list-group-flush">
+                    {% for item in results.predictions %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                        <span><i class="bi bi-file-earmark-image me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ item.count }} mask{{ 's' if item.count != 1 }} · {{ filesize(item.size) }}</span></span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_predictions', model=item.folder.split('/', 1)[1]) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download (.zip)</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if results.tables %}
+            <div class="card mb-4">
+                <div class="card-header py-3">Metric tables</div>
+                <ul class="list-group list-group-flush">
+                    {% for item in results.tables %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                        <span><i class="bi bi-filetype-csv me-2 text-primary" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ item.description }} · {{ filesize(item.size) }}</span></span>
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>Download</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+            <div class="card">
+                <div class="card-header py-3">All files <span class="small-muted fw-normal">({{ results.files | length }})</span></div>
+                <div class="table-responsive" style="max-height: 420px">
+                    <table class="table table-sm table-hover mb-0 align-middle">
+                        <tbody>
+                            {% for item in results.files %}
+                            <tr>
+                                <td class="small text-break">{{ item.path }}</td>
+                                <td class="small-muted text-end text-nowrap tabular-nums">{{ filesize(item.size) }}</td>
+                                <td class="text-end"><a href="{{ url_for('download_file', filepath=item.path) }}" aria-label="Download {{ item.path }}"><i class="bi bi-download" aria-hidden="true"></i></a></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="lightbox" tabindex="-1" aria-labelledby="lightbox-title" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h6" id="lightbox-title"></h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center"><img class="lightbox-img" alt=""></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="confirm-delete" tabindex="-1" aria-labelledby="confirm-delete-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" action="{{ url_for('clear_files') }}" method="post">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="confirm-delete-title">Delete all results?</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">All metrics, figures, predictions and trained networks will be permanently deleted. Download them first if you need them.</div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger"><i class="bi bi-trash me-2" aria-hidden="true"></i>Delete</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.querySelectorAll('[data-copy-target]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var code = document.getElementById(button.getAttribute('data-copy-target')).textContent;
+            var label = button.querySelector('span');
+            navigator.clipboard.writeText(code).then(function () {
+                label.textContent = 'Copied';
+                setTimeout(function () { label.textContent = 'Copy'; }, 1500);
+            }, function () { label.textContent = 'Select and copy'; });
+        });
+    });
+    document.getElementById('lightbox').addEventListener('show.bs.modal', function (event) {
+        var trigger = event.relatedTarget;
+        var image = this.querySelector('.lightbox-img');
+        image.src = trigger.getAttribute('data-src');
+        image.alt = trigger.getAttribute('data-title');
+        this.querySelector('.modal-title').textContent = trigger.getAttribute('data-title');
+    });
+</script>
+{% endblock %}

@@ -432,3 +432,152 @@ for o in sorted(objects, key=lambda o: -o["score"]):
     </div>
 </div>
 {% endmacro %}
+
+{# ---- Image segmentation ---- #}
+
+{% macro segmentation_code(model, info) -%}{% autoescape false -%}
+{%- set nn = model.library == 'nnunet' -%}
+{%- set is3d = info.dim == 3 -%}
+{%- set colour = info.mask_values and info.mask_values[0] is iterable and info.mask_values[0] is not string -%}
+{%- set single = not info.channel_names -%}
+{% if nn %}import functools
+{% else %}import json
+{% endif %}{% if is3d %}import os
+{% endif %}{% if nn %}import shutil
+{% endif %}
+import numpy as np
+import SimpleITK as sitk
+import torch
+{% if not nn %}import torch.nn.functional as F
+from monai.inferers import sliding_window_inference
+{% endif %}{% if not is3d %}from PIL import Image
+{% endif %}{% if nn %}
+torch.load = functools.partial(torch.load, weights_only=False)  # nnU-Net 2.4 checkpoints hold training metadata
+from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor  # noqa: E402
+
+shutil.unpack_archive("Materials/Models/{{ model.file }}", "nnunet_model")
+cuda = torch.cuda.is_available()
+predictor = nnUNetPredictor(tile_step_size=0.5, use_gaussian=True, use_mirroring={{ 'True' if info.tta else 'False' }},  # mirroring: test-time flips
+                            perform_everything_on_device=cuda, device=torch.device("cuda" if cuda else "cpu"))
+predictor.initialize_from_trained_model_folder("nnunet_model", use_folds=({{ '"all"' if model.fold == 'all' else model.fold }},),
+                                               checkpoint_name="checkpoint_final.pth")
+{% else %}
+meta = {"simplatab.json": ""}
+model = torch.jit.load("Materials/Models/{{ model.file }}", _extra_files=meta).eval()  # patch -> class logits
+info = json.loads(meta["simplatab.json"])  # patch, normalisation, {% if is3d %}target spacing, {% endif %}classes, mask values
+{% endif %}RGB = {{ 'True' if info.rgb else 'False' }}
+MASK_VALUES = {{ info.mask_values | tojson }}  # mask value of each class: {{ info.classes | join(', ') }}
+
+{% if is3d %}
+def read(path):  # a NIfTI or DICOM file, or a folder of DICOM slices (one series)
+    if os.path.isdir(path):
+        reader = sitk.ImageSeriesReader()
+        reader.SetFileNames(reader.GetGDCMSeriesFileNames(path))
+        image = reader.Execute()
+    else:
+        image = sitk.ReadImage(path)
+    if image.GetNumberOfComponentsPerPixel() > 1:  # colour: mean of the components
+        parts = [sitk.VectorIndexSelectionCast(image, i, sitk.sitkFloat32) for i in range(image.GetNumberOfComponentsPerPixel())]
+        image = sum(parts[1:], parts[0]) / float(len(parts))
+    if image.GetDimension() == 4:  # several volumes: the first one
+        image = sitk.Extract(image, list(image.GetSize()[:3]) + [0], [0, 0, 0, 0])
+    return sitk.Cast(image, sitk.sitkFloat32)
+
+
+def load(series):  # one path per series{% if not single %}, in the order of training: {{ info.channel_names | join(', ') }}{% endif %}
+    reference = sitk.DICOMOrient(read(series[0]), "LPS")  # axial slices, as in training
+    channels = [reference]
+    for path in series[1:]:  # aligned on the first series in patient coordinates
+        image = read(path)
+        background = float(sitk.GetArrayViewFromImage(image).min())
+        channels.append(sitk.Resample(image, reference, sitk.Transform(), sitk.sitkLinear, background, sitk.sitkFloat32))
+    image = np.stack([sitk.GetArrayFromImage(c) for c in channels]).astype(np.float32)  # (C, z, y, x)
+    return image, reference
+{% else %}
+def read(path):  # (channels, 1, rows, columns) float32 and the pixel spacing (z, y, x)
+    if path.lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp")):
+        image = Image.open(path)
+        if image.mode in ("I;16", "I;16B", "I;16L", "I", "F"):
+            return np.array(image, np.float32)[None, None], [1.0, 1.0, 1.0]
+        if RGB:
+            return np.moveaxis(np.array(image.convert("RGB"), np.float32), -1, 0)[:, None], [1.0, 1.0, 1.0]
+        return np.array(image.convert("L"), np.float32)[None, None], [1.0, 1.0, 1.0]
+    image = sitk.ReadImage(path)  # DICOM or NIfTI slice
+    if image.GetNumberOfComponentsPerPixel() > 1:  # colour: mean of the components
+        parts = [sitk.VectorIndexSelectionCast(image, i, sitk.sitkFloat32) for i in range(image.GetNumberOfComponentsPerPixel())]
+        image = sum(parts[1:], parts[0]) / float(len(parts))
+    rows, columns = image.GetSize()[1], image.GetSize()[0]
+    spacing = [1.0, image.GetSpacing()[1], image.GetSpacing()[0]]
+    return sitk.GetArrayFromImage(image).astype(np.float32).reshape(-1, rows, columns)[:1, None], spacing
+
+
+def load(paths):  # one path per channel group{% if not single %}, in the order of training: {{ info.channel_names | join(', ') }}{% endif %}
+    channels = [read(p) for p in paths]
+    return np.concatenate([c[0] for c in channels]).astype(np.float32), channels[0][1]  # (C, 1, y, x), spacing
+{% endif %}
+{% if nn %}
+def segment(image, spacing):  # (C, z, y, x), spacing (z, y, x) -> classes (z, y, x)
+    return predictor.predict_single_npy_array(image, {"spacing": spacing})
+{% else %}
+def normalise(x):  # per channel, as in training
+    for c, mode in enumerate(info["modes"]):
+        if mode == "rgb":
+            x[c] = x[c] / 255.0  # the network applies the ImageNet statistics itself
+        elif mode == "ct":
+            s = info["stats"][c]
+            x[c] = (np.clip(x[c], s["low"], s["high"]) - s["mean"]) / s["std"]
+        else:
+            x[c] = (x[c] - x[c].mean()) / max(float(x[c].std()), 1e-6)
+    return x
+
+
+def segment(image, spacing):  # (C, z, y, x), spacing (z, y, x) -> classes (z, y, x)
+    x = torch.from_numpy(normalise(image)){% if is3d %}[None]
+    shape = x.shape[2:]  # resampled to the spacing of training
+    size = [max(1, round(n * s / t)) for n, s, t in zip(shape, spacing, info["spacing"])]
+    x = F.interpolate(x, size=size, mode="trilinear", align_corners=False){% else %}[:, 0][None]{% endif %}
+    passes = [[], [-1], [-2], {{ '[-3]' if is3d else '[-1, -2]' }}] if info["tta"] else [[]]  # test-time flips
+    network = lambda window: torch.softmax(model(window), dim=1)  # noqa: E731
+    total = 0
+    with torch.no_grad():
+        for axes in passes:
+            flipped = x.flip(axes) if axes else x
+            p = sliding_window_inference(flipped, tuple(info["patch"]), 4, network, overlap=0.5, mode="gaussian")
+            total = total + (p.flip(axes) if axes else p)
+    p = total / len(passes)
+    {% if is3d %}p = F.interpolate(p, size=tuple(shape), mode="trilinear", align_corners=False)  # back to the image grid
+    return p[0].argmax(0).numpy(){% else %}return p[0].argmax(0)[None].numpy(){% endif %}
+{% endif %}
+
+{% if is3d %}image, reference = load({% if single %}["new_case.nii.gz"]{% else %}[{% for name in info.channel_names %}"new_case/{{ name }}"{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %})  # {{ 'or a folder of DICOM slices' if single else 'folders of DICOM slices or NIfTI files' }}
+classes = segment(image, list(reference.GetSpacing())[::-1])
+mask = sitk.GetImageFromArray(np.array(MASK_VALUES, np.uint16)[classes])
+mask.CopyInformation(reference)
+sitk.WriteImage(mask, "new_case_mask.nii.gz")
+{% else %}image, spacing = load({% if single %}["new_image.png"]{% else %}[{% for name in info.channel_names %}"new_image/{{ name }}.png"{% if not loop.last %}, {% endif %}{% endfor %}]{% endif %})
+classes = segment(image, spacing)[0]
+{% if colour %}Image.fromarray(np.array(MASK_VALUES, np.uint8)[classes]).save("new_image_mask.png")  # the colours of the training masks
+{% else %}Image.fromarray(np.array(MASK_VALUES, np.uint8 if max(MASK_VALUES) < 256 else np.uint16)[classes]).save("new_image_mask.png")
+{% endif %}{% endif %}print({c: int((classes == i).sum()) for i, c in enumerate({{ info.classes | tojson }})})  # {{ 'voxels' if is3d else 'pixels' }} per class
+{%- endautoescape %}{%- endmacro %}
+
+{% macro segmentation_usage_card(models, best, info) %}
+{% set chosen = (models | selectattr('name', 'equalto', best) | first) or models[0] %}
+{% set nn = chosen.library == 'nnunet' %}
+<div class="card mb-4" id="use-models">
+    <div class="card-header py-3"><i class="bi bi-code-slash me-2 text-primary" aria-hidden="true"></i>Use a trained network on new images</div>
+    <div class="p-3">
+        <p class="small-muted mt-0">
+            The <code>.pt</code> networks are TorchScript files with <code>simplatab.json</code> (patch size, normalisation, {% if info.dim == 3 %}spacing, {% endif %}classes and mask values); the <code>.zip</code> networks hold an nnU-Net v2 model folder (plans, dataset description and checkpoint), also usable with <code>nnUNetv2_predict</code>.
+            They run without Simplatab. The example uses <strong>{{ chosen.name }}</strong>{% if best and chosen.name == best %}, the best network on the test set{% endif %}{% if models | map(attribute='library') | unique | list | length > 1 %}; the other kind of network is loaded differently: use its file name and the code of the other kind (nnU-Net or TorchScript){% endif %}.
+        </p>
+        <h3 class="h6 fw-bold">1. Install</h3>
+        {{ code_block("code-install", "Shell", install_code(['"torch>=2.8" --index-url https://download.pytorch.org/whl/cpu   # or the CUDA build for a GPU',
+                                                             ('nnunetv2==2.4.2 acvl-utils==0.2' if nn else 'monai==1.3.2') ~ ' "numpy<2" SimpleITK==2.5.2' ~ (' pillow' if info.dim == 2 else '')])) }}
+        <h3 class="h6 fw-bold mt-3">2. Segment <span class="small-muted fw-normal">(save as <code>segment.py</code> and run <code>python segment.py</code>)</span></h3>
+        {{ code_block("code-predict", "Python", segmentation_code(chosen, info)) }}
+        <p class="small-muted mt-3 mb-0">{% if info.dim == 3 %}The series of a new case are read{% if info.channel_names %} in the order of training ({{ info.channel_names | join(', ') }}){% endif %}, aligned on the first one and segmented on its grid; the mask is written as NIfTI with the geometry of the first series.{% else %}The mask has the size of the image and the {{ 'colours' if info.mask_values and info.mask_values[0] is iterable and info.mask_values[0] is not string else 'values' }} of the training masks.{% endif %}
+            {% if nn %}nnU-Net resamples and normalises the image as it planned in training.{% else %}The image is normalised{% if info.dim == 3 %} and resampled{% endif %} as in training and segmented by overlapping patches.{% endif %}</p>
+    </div>
+</div>
+{% endmacro %}

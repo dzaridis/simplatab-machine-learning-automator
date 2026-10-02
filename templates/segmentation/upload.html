@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Upload data · Image Segmentation{% endblock %}
+
+{% block content %}
+{{ page_header("Upload your images and masks", "Add a training set and a test set as zip files, each with an images folder and a masks folder. 2D images and 3D volumes are both supported.", 1, automator) }}
+
+<div class="container pb-5">
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <form id="upload-form" action="{{ url_for('segmentation_upload') }}" method="post" enctype="multipart/form-data" novalidate
+                  data-max-bytes="{{ max_gb * 1024 * 1024 * 1024 }}">
+                <div class="row g-3">
+                    {% for kind, title, help in [
+                        ("train", "Train.zip", "Used for validation and to train the final networks."),
+                        ("test", "Test.zip", "Held out: only used for the final, external evaluation."),
+                    ] %}
+                    <div class="col-md-6">
+                        <div class="dropzone" data-dropzone="{{ kind }}">
+                            <input type="file" id="{{ kind }}_zip" name="{{ kind }}_zip" accept=".zip,application/zip"
+                                   aria-describedby="{{ kind }}-help" required>
+                            <div class="dz-empty">
+                                <div class="dz-icon mb-2"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i></div>
+                                <label for="{{ kind }}_zip" class="fw-semibold d-block">{{ title }}</label>
+                                <div class="small-muted">Drag and drop, or <span class="text-primary fw-semibold">browse</span></div>
+                                <div class="small-muted mt-2" id="{{ kind }}-help">{{ help }}</div>
+                            </div>
+                            <div class="dz-file d-none">
+                                <div class="file-chip">
+                                    <span class="icon-badge"><i class="bi bi-file-earmark-zip" aria-hidden="true"></i></span>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="small-muted">{{ title }}</div>
+                                        <div class="name" data-field="name"></div>
+                                        <div class="small-muted tabular-nums" data-field="meta"></div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="replace">Replace</button>
+                                </div>
+                                <ul class="check-list" data-field="checks" aria-live="polite"></ul>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="card mt-4 p-3 d-none" id="upload-progress" aria-live="polite">
+                    <div class="d-flex justify-content-between small mb-2">
+                        <span class="fw-semibold" id="upload-label">Uploading…</span>
+                        <span class="tabular-nums small-muted" id="upload-detail"></span>
+                    </div>
+                    <div class="progress" role="progressbar" aria-label="Upload progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="upload-bar">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="alert alert-danger mt-4 d-none" role="alert" id="upload-error"></div>
+
+                <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 mt-4">
+                    <div class="small-muted" id="form-status" aria-live="polite">Add both zip files to continue.</div>
+                    <button type="submit" class="btn btn-primary btn-lg" id="submit-btn" disabled>
+                        <span class="btn-label">Upload and continue<i class="bi bi-arrow-right ms-2" aria-hidden="true"></i></span>
+                        <span class="btn-busy d-none"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Uploading…</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card p-4 mb-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-list-check me-2 text-primary" aria-hidden="true"></i>Data requirements</h2>
+                <ul class="check-list mt-0">
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Two zip files, at most {{ max_gb }} GB each, each with an <code>images/</code> and a <code>masks/</code> folder whose paths mirror each other</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>2D: PNG, JPEG, TIFF, BMP (medical or natural images), DICOM, NIfTI</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>3D: NIfTI volumes, multi-frame DICOM, or one folder per case with a DICOM series or several series (e.g. <code>t2/</code>, <code>adc.nii.gz</code>), used as channels</span></li>
+                    <li><i class="bi bi-check2 ok" aria-hidden="true"></i><span>Masks: label images (0 = background; 0/255 for binary masks), palette or colour PNGs, NIfTI label maps</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Class names in <code>classes.txt</code> (<code>1,liver</code>) or <code>labels.json</code>; the nnU-Net layout (<code>imagesTr/</code>, <code>labelsTr/</code>, <code>dataset.json</code>) also works</span></li>
+                    <li><i class="bi bi-info-circle text-primary" aria-hidden="true"></i><span>Sub-folders (one per patient) keep a patient's cases in the same validation fold</span></li>
+                </ul>
+            </div>
+            <div class="card p-4 mb-4">
+                <h2 class="h6 fw-bold mb-3"><i class="bi bi-diagram-2 me-2 text-primary" aria-hidden="true"></i>Example layouts</h2>
+                <div class="small fw-semibold mb-1">2D images</div>
+<pre class="log-console mb-3" style="max-height:none">Train.zip
+├── images/
+│   ├── case_001.png
+│   └── patient_07/scan.dcm
+└── masks/
+    ├── case_001.png   (or case_001_mask.png)
+    └── patient_07/scan.png</pre>
+                <div class="small fw-semibold mb-1">3D volumes</div>
+<pre class="log-console mb-2" style="max-height:none">Train.zip
+├── images/
+│   ├── case_01.nii.gz
+│   └── case_02/          (one or more series)
+│       ├── t2/           (DICOM slices)
+│       └── adc.nii.gz
+└── masks/
+    ├── case_01.nii.gz
+    └── case_02.nii.gz</pre>
+                <div class="small-muted">A 3D mask can be on the grid of the first series or anywhere in patient space: it is aligned on the image.</div>
+            </div>
+            <div class="card p-4">
+                <h2 class="h6 fw-bold mb-2"><i class="bi bi-download me-2 text-primary" aria-hidden="true"></i>Example data</h2>
+                <p class="small-muted mb-3">Synthetic data to try the automator: 2D skin-lesion-like photographs (colour masks with two classes), and 3D prostate-like MRI (T2 DICOM series + ADC NIfTI, lesion masks).</p>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for name, label in [("Train.zip", "2D Train.zip"), ("Test.zip", "2D Test.zip"), ("Train3D.zip", "3D Train.zip"), ("Test3D.zip", "3D Test.zip")] %}
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('segmentation_example', name=name) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>{{ label }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/segmentation_upload.js') }}"></script>
+{% endblock %}

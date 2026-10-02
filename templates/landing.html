@@ -93,7 +93,7 @@
         <div class="mb-4 col-lg-8">
             <div class="eyebrow mb-2">How it works</div>
             <h2 class="section-title" id="how-title">A complete, reproducible pipeline</h2>
-            <p class="lead-muted mb-0">What the tabular automator does after you press Run. The image automator follows the same steps, with medical image preparation, pretrained 2D or 3D networks and Grad-CAM; the forecasting automator with rolling-origin validation and integrated gradients; the detection automator with pretrained detectors, K-fold or hold-out validation and D-RISE.</p>
+            <p class="lead-muted mb-0">What the tabular automator does after you press Run. The image automator follows the same steps, with medical image preparation, pretrained 2D or 3D networks and Grad-CAM; the forecasting automator with rolling-origin validation and integrated gradients; the detection automator with pretrained detectors, K-fold or hold-out validation and D-RISE; the segmentation automator with nnU-Net and U-Net-family networks, Dice and surface-distance metrics and uncertainty maps.</p>
         </div>
         <div class="row g-4">
             <div class="col-md-6 col-lg-3">
@@ -143,7 +143,7 @@
                     ("sliders", "Hyperparameter search", "Randomized or exhaustive search, scored by cross-validated AUC."),
                     ("bullseye", "Threshold optimisation", "Chooses the decision threshold on the validation folds, not on the test set."),
                     ("clipboard-data", "Internal and external metrics", "AUC, F-score, accuracy, sensitivity, specificity and balanced accuracy."),
-                    ("lightbulb", "Explainability", "SHAP plots for tabular models, Grad-CAM heatmaps for image networks."),
+                    ("lightbulb", "Explainability", "SHAP plots for tabular models, Grad-CAM heatmaps for image networks, uncertainty maps for segmentations."),
                     ("box-seam", "Reusable models", "Download trained models, preprocessing included, to predict on new data."),
                 ] %}
                 {% for icon, title, text in features %}

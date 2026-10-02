@@ -32,10 +32,12 @@ from Helpers.image3d.volumes import SHAPES as VOLUME_SHAPES, CROPS as VOLUME_CRO
 from Helpers.forecasting import data as forecast_data
 from Helpers.forecasting.models import MODELS as FORECAST_MODELS
 from Helpers.detection import dataset as detection_dataset
+from Helpers.segmentation import data as segmentation_data
+from Helpers.segmentation.models import NETWORKS as SEG_NETWORKS, BY_KEY as SEG_BY_KEY
 from Helpers.detection.models import DETECTORS, BY_KEY as DETECTORS_BY_KEY
 from Helpers.detection.metrics import MAIN_IOU
 from web.catalog import AUTOMATORS, MODELS, THRESHOLD_METRICS, get_automator
-from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES, DETECTION_PHASES
+from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES, DETECTION_PHASES, SEGMENTATION_PHASES
 
 # Set in the Docker image by the release CI (same as the image and release tags)
 APP_VERSION = os.environ.get("SIMPLATAB_VERSION", "dev")
@@ -64,6 +66,8 @@ os.makedirs(TEMP_OUTPUT_FOLDER, exist_ok=True)
 IMAGE_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_images')
 # Detection automator: uploaded zips, extracted images and the cache of 8-bit images and volumes
 DETECTION_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_detection')
+# Segmentation automator: uploaded zips, extracted images and masks, the cache and nnU-Net's folders
+SEGMENTATION_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_segmentation')
 # Forecasting automator: Train.csv, Test.csv, their summary and the run parameters
 FORECAST_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_forecasting')
 FORECAST_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "time-series-forecasting")
@@ -687,6 +691,149 @@ def detection_parameters():
 
 
 # ---------------------------------------------------------------------------
+# Segmentation automator: upload -> parameters -> run -> results
+# ---------------------------------------------------------------------------
+
+SEGMENTATION_EXAMPLES = ("Train.zip", "Test.zip", "Train3D.zip", "Test3D.zip")
+SEGMENTATION_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "image-segmentation")
+
+
+def segmentation_summary():
+    path = os.path.join(SEGMENTATION_INPUT_FOLDER, "summary.json")
+    return segmentation_data.load_json(path) if os.path.exists(path) else None
+
+
+def _segmentation_upload_error(message):
+    if _wants_json():
+        return jsonify({"error": message}), 400
+    flash(message, 'danger')
+    return redirect(url_for('segmentation'))
+
+
+@app.route('/segmentation')
+def segmentation():
+    return render_template('segmentation/upload.html', automator=get_automator("image-segmentation"),
+                           max_gb=image_dataset.MAX_ZIP_BYTES // 1024 ** 3)
+
+
+@app.route('/segmentation/example/<name>')
+def segmentation_example(name):
+    if name not in SEGMENTATION_EXAMPLES:
+        abort(404)
+    return send_from_directory(SEGMENTATION_EXAMPLE_FOLDER, name, as_attachment=True)
+
+
+@app.route('/segmentation/upload', methods=['POST'])
+def segmentation_upload():
+    if job.running:
+        return _segmentation_upload_error('A pipeline is already running. Wait for it to finish before uploading new data.')
+    files = {split: request.files.get(f'{split}_zip') for split in ("train", "test")}
+    if not all(f and f.filename for f in files.values()):
+        return _segmentation_upload_error('Add both Train.zip and Test.zip.')
+    if not all(f.filename.lower().endswith('.zip') for f in files.values()):
+        return _segmentation_upload_error('Invalid file type: upload two .zip files.')
+    shutil.rmtree(SEGMENTATION_INPUT_FOLDER, ignore_errors=True)
+    os.makedirs(SEGMENTATION_INPUT_FOLDER)
+    try:
+        for split, upload in files.items():
+            archive = os.path.join(SEGMENTATION_INPUT_FOLDER, f"{split}.zip")
+            upload.save(archive)
+            if os.path.getsize(archive) > image_dataset.MAX_ZIP_BYTES:
+                raise image_dataset.DatasetError(
+                    f"{upload.filename} is larger than {image_dataset.MAX_ZIP_BYTES // 1024 ** 3} GB.")
+            image_dataset.extract_zip(archive, os.path.join(SEGMENTATION_INPUT_FOLDER, split))
+            os.remove(archive)
+        summary = segmentation_data.summarize(os.path.join(SEGMENTATION_INPUT_FOLDER, "train"),
+                                              os.path.join(SEGMENTATION_INPUT_FOLDER, "test"))
+    except (image_dataset.DatasetError, segmentation_data.SegmentationDataError) as e:
+        shutil.rmtree(SEGMENTATION_INPUT_FOLDER, ignore_errors=True)
+        return _segmentation_upload_error(str(e))
+    if summary["errors"]:
+        shutil.rmtree(SEGMENTATION_INPUT_FOLDER, ignore_errors=True)
+        return _segmentation_upload_error(" ".join(summary["errors"]))
+    segmentation_data.save_json(summary, os.path.join(SEGMENTATION_INPUT_FOLDER, "summary.json"))
+    if _wants_json():
+        return jsonify({"redirect": url_for('segmentation_parameters')})
+    return redirect(url_for('segmentation_parameters'))
+
+
+def segmentation_params_from_form(form, summary):
+    available = [n for n in SEG_NETWORKS if n.dim == summary["dim"]]
+    selected = [n.key for n in available if form.get(n.key) == 'true']
+    if not selected:
+        raise ValueError('Select at least one network.')
+    channels = None
+    if len(summary.get("series", [])) > 1:
+        names = {s["name"] for s in summary["series"]}
+        channels = [name for name in form.getlist('channels') if name in names]
+        reference = form.get('reference')
+        if reference in channels:  # the reference series first: the others and the mask are put on its grid
+            channels = [reference] + [c for c in channels if c != reference]
+        if not channels:
+            raise ValueError('Select at least one series.')
+    elif summary.get("channels"):
+        channels = summary["channels"]
+    validation = "holdout" if form.get('validation') == 'holdout' else "kfold"
+    return {
+        "models": selected,
+        "dim": summary["dim"],
+        "mapping": summary["mapping"],
+        "channels": channels,
+        "validation": validation,
+        "k_folds": _bounded(form, 'k_folds', int, 2, max(2, summary["max_folds"]), min(5, summary["max_folds"])),
+        "holdout_fraction": _bounded(form, 'holdout_percent', int, 10, 40, 20) / 100,
+        "epochs": _bounded(form, 'epochs', int, 1, 1000, 20),
+        "iterations": _bounded(form, 'iterations', int, 1, 1000, 50),
+        "batch_size": _bounded(form, 'batch_size', int, 1, 64, 2 if summary["dim"] == 3 else 8),
+        "learning_rate": _bounded(form, 'learning_rate', float, 1e-5, 1e-2, 1e-3),
+        "augmentation": {key: form.get(key) == 'true'
+                         for key in ("rotation", "intensity", "horizontal_flip", "vertical_flip", "depth_flip")},
+        "normalisation": form.get('normalisation') if form.get('normalisation') in ("auto", "ct", "zscore") else "auto",
+        "tta": form.get('tta') == 'true',
+        "nnunet_epochs": _bounded(form, 'nnunet_epochs', int, 1, 1000, 100),
+        "nnunet_iterations": _bounded(form, 'nnunet_iterations', int, 1, 250, 250),
+        # SIMPLATAB_PRETRAINED=0: networks without pretrained weights (offline use, tests)
+        "pretrained": os.environ.get("SIMPLATAB_PRETRAINED", "1") != "0",
+    }
+
+
+@app.route('/segmentation/parameters', methods=['GET', 'POST'])
+def segmentation_parameters():
+    if job.running:
+        return redirect(url_for('run'))
+    summary = segmentation_summary()
+    if summary is None:
+        flash('Upload Train.zip and Test.zip first.', 'warning')
+        return redirect(url_for('segmentation'))
+
+    if request.method == 'POST':
+        try:
+            params = segmentation_params_from_form(request.form, summary)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(url_for('segmentation_parameters'))
+        segmentation_data.save_json(params, os.path.join(SEGMENTATION_INPUT_FOLDER, "params.json"))
+        names = [SEG_BY_KEY[key].name for key in params["models"]]
+        clear_materials()
+        from Helpers.segmentation.pipeline import run_segmentation_pipeline
+        if not job.start(lambda: run_segmentation_pipeline(SEGMENTATION_INPUT_FOLDER, params), names,
+                         automator="image-segmentation", phases=SEGMENTATION_PHASES, initial_phase="prep"):
+            flash('A pipeline is already running.', 'warning')
+        return redirect(url_for('run'))
+
+    import torch
+    return render_template(
+        'segmentation/parameters.html',
+        automator=get_automator("image-segmentation"),
+        summary=summary,
+        previous_results=has_results(),
+        networks=[n for n in SEG_NETWORKS if n.dim == summary["dim"]],
+        gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        cpu_count=os.cpu_count(),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Time series forecasting automator: upload -> parameters -> run -> results
 # ---------------------------------------------------------------------------
 
@@ -1043,6 +1190,98 @@ def collect_detection_results(root):
     return results
 
 
+def collect_segmentation_results(root):
+    """What the results page of the segmentation automator shows, read from the Materials folder."""
+    with open(os.path.join(root, "run_info.json")) as f:
+        info = json.load(f)
+    metrics = info["metrics"]
+    lower = {"HD95", "ASSD"}  # distances: lower is better
+    results = {"info": info, "automator": get_automator("image-segmentation"), "metrics": metrics, "lower": sorted(lower),
+               "test": None, "validation": None, "best": None, "plots": [], "overlays": {}, "per_class": [],
+               "models": [], "predictions": [], "tables": [], "files": []}
+    for dirpath, _, filenames in os.walk(root):
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            results["files"].append({"path": _relative(path, root), "size": os.path.getsize(path)})
+    results["files"].sort(key=lambda f: f["path"])
+
+    def number(value):
+        return float(value) if value == value else float("nan")
+    test_path = os.path.join(root, "test_results.xlsx")
+    if os.path.exists(test_path):
+        test = pd.read_excel(test_path, index_col=0)
+        best = {m: (test[m].min() if m in lower else test[m].max()) for m in metrics}
+        results["test"] = [{"model": model, "values": {m: number(row[m]) for m in metrics},
+                            "best": {m: bool(row[m] == best[m]) for m in metrics}} for model, row in test.iterrows()]
+        top = info.get("best_model")
+        if top in test.index:
+            results["best"] = {"model": top, "values": {m: number(test.loc[top, m]) for m in metrics}}
+    validation_path = os.path.join(root, info.get("validation_file", ""))
+    if os.path.isfile(validation_path):
+        table = pd.read_excel(validation_path, index_col=0)
+        results["validation"] = [{"model": model, "values": {m: (f"{row[m]:.3f}" if isinstance(row[m], float) else str(row[m]))
+                                                             for m in metrics}} for model, row in table.iterrows()]
+    per_class_path = os.path.join(root, "Segmentation_Metrics", "test_per_class.csv")
+    if os.path.exists(per_class_path) and len(info.get("classes", [])) > 2:
+        per_class = pd.read_csv(per_class_path)
+        results["per_class"] = [{"model": model, "values": dict(zip(group["class"], group["Dice"].astype(float)))}
+                                for model, group in per_class.groupby("model", sort=False)]
+    for name, title in (("test_overlap_metrics.png", "Overlap metrics on the test set"),
+                        ("test_distances.png", "Surface distances on the test set"),
+                        ("test_dice_per_case.png", "Dice of each test case"),
+                        ("test_dice_per_class.png", "Test Dice per class")):
+        item = _figure(os.path.join(root, "Segmentation_Plots", name), root, title)
+        if item:  # the four-panel overlap figure on a full row, the others two per row
+            item["columns"] = "col-12" if name == "test_overlap_metrics.png" else "col-12 col-lg-6"
+            results["plots"].append(item)
+    for model in [row["model"] for row in results["test"] or []]:
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in model)
+        paths = glob.glob(os.path.join(root, "Overlays", safe, f"{safe}_*.png"))
+        order = {"worst": 0, "median": 1, "best": 2}
+        paths.sort(key=lambda p: order.get(os.path.basename(p)[len(safe) + 1:].split("_", 1)[0], 3))
+        if paths:
+            items = []
+            for p in paths:
+                rank, case = (os.path.basename(p)[len(safe) + 1:-4].split("_", 1) + [""])[:2]
+                items.append({"path": _relative(p, root), "title": f"{rank.capitalize()} test case · {case}"})
+            results["overlays"][model] = items
+        exported = info.get("models", {}).get(model)
+        if exported and os.path.exists(os.path.join(root, "Models", exported["file"])):
+            path = os.path.join(root, "Models", exported["file"])
+            results["models"].append({"path": _relative(path, root), "name": model, "size": os.path.getsize(path),
+                                      "file": exported["file"], "library": exported["library"],
+                                      "configuration": exported.get("configuration"), "fold": exported.get("fold")})
+        folder = os.path.join(root, "Predictions", safe)
+        if os.path.isdir(folder):
+            masks = [f for f in os.listdir(folder) if not f.startswith(".")]
+            results["predictions"].append({"name": model, "count": len(masks), "folder": _relative(folder, root),
+                                           "size": sum(os.path.getsize(os.path.join(folder, f)) for f in masks)})
+    for name, title, description in (
+            ("test_per_class.csv", "Test metrics per class", "Every network and class: Dice, IoU, HD95, ASSD, sensitivity and precision on Test.zip."),
+            ("test_per_case.csv", "Test metrics per case", "Every network, test case and class.")):
+        path = os.path.join(root, "Segmentation_Metrics", name)
+        if os.path.exists(path):
+            results["tables"].append({"path": _relative(path, root), "name": title, "description": description,
+                                      "size": os.path.getsize(path)})
+    return results
+
+
+@app.route('/download_predictions/<path:model>')
+def download_predictions(model):
+    """The predicted test masks of one segmentation network, as a zip."""
+    root = materials_dir()
+    folder = os.path.realpath(os.path.join(root, "Predictions", model))
+    if not folder.startswith(os.path.realpath(os.path.join(root, "Predictions")) + os.sep) or not os.path.isdir(folder):
+        abort(404)
+    archive = tempfile.TemporaryFile()
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_STORED) as zipf:
+        for name in sorted(os.listdir(folder)):
+            zipf.write(os.path.join(folder, name), name)
+    archive.seek(0)
+    return send_file(archive, mimetype='application/zip', as_attachment=True,
+                     download_name=f'{os.path.basename(folder)}_test_masks.zip')
+
+
 def _run_automator(root):
     path = os.path.join(root, "run_info.json")
     if os.path.exists(path):
@@ -1056,6 +1295,8 @@ def results():
     root = materials_dir()
     if _run_automator(root) == "object-detection":
         return render_template('detection/results.html', results=collect_detection_results(root))
+    if _run_automator(root) == "image-segmentation":
+        return render_template('segmentation/results.html', results=collect_segmentation_results(root))
     if _run_automator(root) == "time-series-forecasting":
         return render_template('forecasting/results.html', results=collect_forecast_results(root),
                                metrics=FORECAST_METRICS)

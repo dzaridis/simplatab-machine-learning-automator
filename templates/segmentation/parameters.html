@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Configure · Image Segmentation{% endblock %}
+
+{% block content %}
+{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2, automator) }}
+{% set is3d = summary.dim == 3 %}
+{% set unit = 'cases' %}
+
+<div class="container pb-4">
+    <form id="params-form" action="{{ url_for('segmentation_parameters') }}" method="post" novalidate data-max-folds="{{ summary.max_folds }}">
+        <div class="row g-4">
+            <div class="col-lg-8 order-2 order-lg-1">
+                {% if previous_results %}
+                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
+                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+                        <div><div class="fw-semibold">Starting this run replaces the previous results</div>
+                            <div class="small-muted">Download them first if you want to keep them.</div></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_all') }}">
+                        <i class="bi bi-file-earmark-zip me-1" aria-hidden="true"></i>Download previous results</a>
+                </div>
+                {% endif %}
+
+                {% if summary.warnings %}
+                <div class="alert alert-warning d-flex gap-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
+                    <div><div class="fw-semibold">Check your data</div>
+                        <ul class="mb-0 ps-3">{% for warning in summary.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>
+                </div>
+                {% endif %}
+
+                {% if summary.series | length > 1 %}
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-layers me-2 text-primary" aria-hidden="true"></i>Series</div>
+                    <div class="settings-section">
+                        <h2 class="mb-1">Series used as input channels</h2>
+                        <p class="help mb-3">The series of each case folder are matched by name, aligned in patient coordinates on the reference series (the mask is put on its grid) and stacked as channels. Cases missing a chosen series are skipped.</p>
+                        <div class="table-responsive mb-3">
+                            <table class="table metric-table mb-0">
+                                <thead><tr><th scope="col">Use</th><th scope="col">Series</th><th scope="col">Train cases</th><th scope="col">Test cases</th></tr></thead>
+                                <tbody>
+                                    {% for row in summary.series %}
+                                    <tr>
+                                        <td><input class="form-check-input" type="checkbox" name="channels" value="{{ row.name }}" id="series-{{ loop.index }}"
+                                                   data-series {% if row.name in summary.channels %}checked{% endif %}></td>
+                                        <td><label class="fw-semibold" for="series-{{ loop.index }}">{{ row.name }}</label></td>
+                                        <td class="tabular-nums">{{ row.train }} / {{ summary.train_cases }}</td>
+                                        <td class="tabular-nums">{{ row.test }} / {{ summary.test_cases }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="reference">Reference series</label></h2>
+                                <p class="help">Its grid (orientation, field of view, resolution) is the grid of the input and of the predicted masks.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="reference" name="reference">
+                                    {% for row in summary.series %}<option value="{{ row.name }}" {% if summary.channels and row.name == summary.channels[0] %}selected{% endif %}>{{ row.name }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="invalid-feedback d-block mt-2 d-none" id="series-error" role="alert">Select at least one series.</div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Networks</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">{% if is3d %}3D networks for volumes: the official nnU-Net, a transformer with a CT self-supervised encoder, and state-of-the-art architectures trained from scratch.{% else %}2D networks for medical and natural images: the official nnU-Net, encoders pretrained on ImageNet, and U-Nets trained from scratch.{% endif %} Selecting several lets you compare them on the same folds.</p>
+                        {% for group, families, title, subtitle in [
+                            ("nnunet", ["nnunet"], "nnU-Net (official)", "Self-configuring: nnU-Net plans its own preprocessing, network and training from your data. The reference method of medical segmentation challenges."),
+                            ("pretrained", ["pretrained", "ssl"], "Pretrained encoders", "Encoders pretrained on ImageNet" ~ (" or self-supervised on CT volumes" if is3d else "") ~ ", fine-tuned with a segmentation decoder: accurate with few annotated cases."),
+                            ("scratch", ["scratch"], "Trained from scratch", "Modern U-Net variants that learn everything from your cases: they need more cases and epochs."),
+                        ] %}
+                        {% set members = networks | selectattr('family', 'in', families) | list %}
+                        {% if members %}
+                        <div class="{% if not loop.first %}mt-4{% endif %}">
+                            <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+                                <div><h2>{{ title }}</h2><p class="help">{{ subtitle }}</p></div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Select {{ title }}">
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="1">Select all</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ group }}" data-value="0">None</button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                {% for n in members %}
+                                <div class="col-md-6">
+                                    <label class="option-card">
+                                        <input type="checkbox" name="{{ n.key }}" value="true" data-group="{{ group }}" {% if n.default %}checked{% endif %}>
+                                        <span class="option-body">
+                                            <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                            <span>
+                                                <span class="title d-block">{{ n.name }}{% if n.default %} <span class="badge rounded-pill text-bg-light border fw-medium ms-1">Recommended</span>{% endif %}{% if n.light %} <span class="badge rounded-pill text-bg-light border fw-medium ms-1">Light</span>{% endif %}</span>
+                                                <span class="desc d-block">{{ n.description }}</span>
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                        <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one network.</div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-sliders me-2 text-primary" aria-hidden="true"></i>Validation</div>
+                    <div class="settings-section">
+                        <div class="row g-2">
+                            {% for value, title, desc, speed in [
+                                ("kfold", "K-fold cross-validation", "Train.zip is split into K folds (a patient's cases stay together); each network is trained K times and scored on the left-out fold, then retrained on all of Train.zip. Mean ± SD across folds.", "K + 1 trainings per network"),
+                                ("holdout", "Hold-out (fast)", "One split: each network is trained on the training part, scored on the validation part and kept as the final network.", "1 training per network"),
+                            ] %}
+                            <div class="col-md-6">
+                                <label class="option-card">
+                                    <input type="radio" name="validation" value="{{ value }}" {% if (value == 'holdout') == (gpu is none) %}checked{% endif %}>
+                                    <span class="option-body">
+                                        <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                        <span>
+                                            <span class="title d-block">{{ title }}</span>
+                                            <span class="desc d-block">{{ desc }}</span>
+                                            <span class="speed"><i class="bi bi-clock" aria-hidden="true"></i>{{ speed }}</span>
+                                        </span>
+                                    </span>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="settings-section" id="kfold-settings">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="k_folds">Number of folds</label></h2>
+                                <p class="help">nnU-Net itself uses 5 folds.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="{{ [5, summary.max_folds] | min }}" min="2" max="{{ summary.max_folds }}" aria-describedby="k-folds-feedback">
+                                <div class="form-text" id="k-folds-feedback">At most {{ summary.max_folds }}{% if summary.grouped %}: {{ summary.groups }} patient groups{% endif %}.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section d-none" id="holdout-settings">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="holdout_percent">Validation share</label></h2>
+                                <p class="help">Share of Train.zip kept for validation.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="holdout_percent" name="holdout_percent">
+                                    {% for value in [10, 15, 20, 25, 30] %}<option value="{{ value }}" {% if value == 20 %}selected{% endif %}>{{ value }}%</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-lightning-charge me-2 text-primary" aria-hidden="true"></i>Training</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">
+                            {% if gpu %}<i class="bi bi-gpu-card me-1 text-success" aria-hidden="true"></i>GPU detected: {{ gpu }}.
+                            {% else %}<i class="bi bi-cpu me-1" aria-hidden="true"></i>No GPU detected ({{ cpu_count }} CPU cores): training segmentation networks on CPU is slow{% if is3d %}, very slow in 3D{% endif %}. The defaults are reduced; use the hold-out validation, the light networks, or the GPU Docker image.{% endif %}
+                        </p>
+                        <h2 class="mb-1">Networks trained by the automator</h2>
+                        <p class="help mb-3">Patches sampled from the {{ 'volumes resampled to the median spacing' if is3d else 'images' }} (a third centred on a structure), Dice + cross-entropy loss, a fixed number of epochs of a fixed number of iterations (as nnU-Net). The patch size is planned from your data.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="epochs">Epochs</label>
+                                <input type="number" class="form-control" id="epochs" name="epochs" value="{{ 100 if gpu else 20 }}" min="1" max="1000">
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="iterations">Iterations per epoch</label>
+                                <input type="number" class="form-control" id="iterations" name="iterations" value="{{ 250 if gpu else 50 }}" min="1" max="1000">
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="batch_size">Batch size</label>
+                                <select class="form-select" id="batch_size" name="batch_size">
+                                    {% for value in ([1, 2, 4] if is3d else [4, 8, 16, 32]) %}<option value="{{ value }}" {% if value == (2 if is3d else 8) %}selected{% endif %}>{{ value }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-sm-6 col-xl-3">
+                                <label class="form-label fw-semibold" for="learning_rate">Learning rate</label>
+                                <select class="form-select" id="learning_rate" name="learning_rate">
+                                    {% for value in ["0.0003", "0.001", "0.003"] %}<option value="{{ value }}" {% if value == "0.001" %}selected{% endif %}>{{ value }}{% if value == "0.001" %} (default){% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <p class="help mt-3 mb-0">Pretrained networks use 30% of the learning rate. Lower the batch size if the GPU runs out of memory.</p>
+                    </div>
+                    <div class="settings-section">
+                        <h2 class="mb-1">Data augmentation</h2>
+                        <p class="help mb-3">Random variations of the training patches; the masks follow the geometric ones.</p>
+                        <div class="row g-2">
+                            {% for key, title, desc, checked, show in [
+                                ("rotation", "Rotations and scaling", "±15° in-plane and ±15% zoom.", true, true),
+                                ("intensity", "Brightness, contrast and noise", "For scanner and exposure differences.", true, true),
+                                ("horizontal_flip", "Left-right flips", "On by default for colour photos; off for medical images, where left and right matter.", summary.rgb, true),
+                                ("vertical_flip", "Up-down flips", "For images without an up/down orientation (microscopy, dermoscopy).", false, true),
+                                ("depth_flip", "Flips along the slices", "Rarely appropriate.", false, is3d),
+                            ] if show %}
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="{{ key }}" name="{{ key }}" value="true" {% if checked %}checked{% endif %}>
+                                    <label class="form-check-label fw-semibold" for="{{ key }}">{{ title }}</label>
+                                    <div class="small-muted">{{ desc }}</div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="settings-section" id="nnunet-settings">
+                        <h2 class="mb-1">nnU-Net schedule</h2>
+                        <p class="help mb-3">nnU-Net trains for 1000 epochs of 250 iterations by default (about a day per fold on a GPU); a shorter schedule gives most of its accuracy in a fraction of the time.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label fw-semibold" for="nnunet_epochs">nnU-Net epochs</label>
+                                <select class="form-select" id="nnunet_epochs" name="nnunet_epochs">
+                                    {% for value in [10, 50, 100, 250, 500, 1000] %}<option value="{{ value }}" {% if value == (100 if gpu else 10) %}selected{% endif %}>{{ value }}{% if value == 1000 %} (nnU-Net default){% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label fw-semibold" for="nnunet_iterations">Iterations per epoch</label>
+                                <select class="form-select" id="nnunet_iterations" name="nnunet_iterations">
+                                    {% for value in [25, 50, 100, 250] %}<option value="{{ value }}" {% if value == (250 if gpu else 50) %}selected{% endif %}>{{ value }}{% if value == 250 %} (nnU-Net default){% endif %}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header py-3"><i class="bi bi-heart-pulse me-2 text-primary" aria-hidden="true"></i>Image preparation and uncertainty</div>
+                    {% if not summary.rgb %}
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="normalisation">Intensity normalisation</label></h2>
+                                <p class="help">CT: intensities clipped to the 0.5–99.5 percentiles of the structures and standardised with their statistics (as nnU-Net). Z-score: each image standardised on its own (MRI, X-ray, microscopy). Automatic uses CT for CT series.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="normalisation" name="normalisation">
+                                    {% for value, label in [("auto", "Automatic" ~ (" (CT detected)" if summary.has_ct else "")), ("ct", "CT (Hounsfield units)"), ("zscore", "Z-score per image")] %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="settings-section">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="tta" name="tta" value="true" checked>
+                            <label class="form-check-label fw-semibold" for="tta">Test-time augmentation and uncertainty maps</label>
+                            <div class="small-muted">Each image is also predicted flipped along each axis; the averaged prediction is more accurate and the disagreement between the passes gives the uncertainty map shown with the results (where boundaries are unreliable). Inference takes 4 times longer.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 order-1 order-lg-2">
+                <div class="card p-4" style="position: sticky; top: 5.5rem;">
+                    <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
+                    <div class="row g-2 mb-3 text-center">
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.train_cases }}</div><div class="small-muted">train cases</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.test_cases }}</div><div class="small-muted">test cases</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.dim }}D</div><div class="small-muted">{{ 'nnU-Net layout' if summary.format == 'nnunet' else ('colour images' if summary.rgb else 'images') }}</div></div></div>
+                    </div>
+                    <div class="table-responsive mb-3">
+                        <table class="table table-sm mb-0 small">
+                            <thead><tr><th scope="col">Class</th><th scope="col" class="text-end">Mask value</th><th scope="col" class="text-end">Train cases</th><th scope="col" class="text-end">Test cases</th></tr></thead>
+                            <tbody>{% for row in summary.classes[1:] %}<tr><td class="fw-semibold">{{ row.name }}</td><td class="text-end tabular-nums">{{ row.value | join(', ') if row.value is iterable and row.value is not string else row.value }}</td><td class="text-end tabular-nums">{{ row.train_cases }}</td><td class="text-end tabular-nums">{{ row.test_cases }}</td></tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
+                    <dl class="row small mb-3">
+                        {% if summary.grouped %}<dt class="col-7 fw-normal small-muted">Patient groups</dt><dd class="col-5 tabular-nums mb-1">{{ summary.groups }}</dd>{% endif %}
+                        {% if summary.size_range %}<dt class="col-7 fw-normal small-muted">{{ 'Slice side' if is3d else 'Image side' }} (px)</dt><dd class="col-5 tabular-nums mb-1">{{ summary.size_range[0] }}–{{ summary.size_range[1] }}</dd>{% endif %}
+                    </dl>
+                    <div class="d-flex flex-wrap gap-1 mb-3">{% for kind, count in summary.kinds.items() %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ {'dicom': 'DICOM', 'nifti': 'NIfTI', 'raster': 'PNG/JPEG/TIFF'}.get(kind, kind) }} · {{ count }}</span>{% endfor %}{% for modality in summary.modalities %}<span class="badge rounded-pill text-bg-light border fw-medium">{{ modality }}</span>{% endfor %}</div>
+                    <a class="small" href="{{ url_for('segmentation') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <div class="container px-0 d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between">
+                <div class="small-muted d-none d-sm-block" id="run-summary" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary btn-lg" id="run-btn">
+                    <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run pipeline
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/segmentation_parameters.js') }}"></script>
+{% endblock %}

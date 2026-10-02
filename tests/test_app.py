@@ -66,7 +66,8 @@ class TestPages(AppTestCase):
         page = self.client.get("/automl/").get_data(as_text=True)
         for automator in AUTOMATORS:
             self.assertIn(automator.name, page)
-        self.assertIn("Coming soon", page)
+        if not all(automator.available for automator in AUTOMATORS):
+            self.assertIn("Coming soon", page)
 
     def test_automator_pages(self):
         for automator in AUTOMATORS:
