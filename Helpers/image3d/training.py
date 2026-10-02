@@ -116,8 +116,9 @@ def fine_tune(spec, paths, labels, num_classes, channels, shape, settings, epoch
         head += [p for n, p in model.encoder.named_parameters() if n.startswith("attention_")]
     head_ids = {id(p) for p in head}
     encoder = [p for p in model.parameters() if id(p) not in head_ids]
-    # Pretrained encoders learn 10 times slower than the new layers; from scratch, at the same rate
-    encoder_rate = settings["learning_rate"] * (10 if spec.family == "scratch" else 1)
+    # Pretrained encoders learn 10 times slower than the new layers; from scratch, CNNs at the same rate
+    # and transformers (less stable at high rates) 3 times slower
+    encoder_rate = settings["learning_rate"] * {"scratch": 10, "scratch_transformer": 3}.get(spec.family, 1)
     optimizer = torch.optim.AdamW([{"params": encoder, "lr": encoder_rate},
                                    {"params": head, "lr": settings["learning_rate"] * 10}], weight_decay=0.05)
     steps = max(1, epochs * len(loader))

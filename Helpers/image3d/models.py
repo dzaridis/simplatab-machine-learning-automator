@@ -26,7 +26,7 @@ MAX_SLICES_25D = 16  # slices given to the 2D network of the 2.5D model
 class Network3D:
     key: str
     name: str
-    family: str        # "medical", "video", "ssl", "scratch" or "2.5d"
+    family: str        # "medical", "video", "ssl", "2.5d", "scratch" (CNN) or "scratch_transformer"
     description: str
     weights: str       # what the network was pretrained on
     default: bool = False
@@ -58,8 +58,32 @@ NETWORKS = [
               "Encoder of SwinUNETR, self-supervised on 5,050 CT volumes: a medical 3D transformer.",
               "Self-supervised, 5,050 CT volumes"),
     Network3D("densenet121_3d", "DenseNet-121 3D", "scratch",
-              "MONAI 3D DenseNet trained from scratch: no pretrained weights, best with large datasets and fine-tuning.",
+              "Densely connected 3D CNN (MONAI), the classic baseline of 3D medical classification.",
               "None (trained from scratch)"),
+    Network3D("mednext_s", "MedNeXt-S", "scratch",
+              "ConvNeXt blocks redesigned for 3D medical images (MICCAI 2023), with residual down-sampling: "
+              "state of the art among medical CNNs.", "None (trained from scratch)"),
+    Network3D("convnextv2_3d", "ConvNeXt V2-Pico 3D", "scratch",
+              "ConvNeXt V2 (2023) in 3D: 7x7x7 depthwise convolutions and global response normalisation.",
+              "None (trained from scratch)"),
+    Network3D("uxnet_3d", "3D UX-Net", "scratch",
+              "Large-kernel 3D CNN (ICLR 2023): 7x7x7 depthwise convolutions with the receptive field of a transformer.",
+              "None (trained from scratch)"),
+    Network3D("resenc_m", "nnU-Net ResEnc-M encoder", "scratch",
+              "Residual encoder of nnU-Net, the strongest 3D medical baseline of the 2024 nnU-Net revisited benchmark.",
+              "None (trained from scratch)"),
+    Network3D("seresnext50_3d", "SEResNeXt-50 3D", "scratch",
+              "Grouped residual convolutions with squeeze-and-excitation channel attention (MONAI).",
+              "None (trained from scratch)"),
+    Network3D("efficientnet_b0_3d", "EfficientNet-B0 3D", "scratch",
+              "Compound-scaled mobile convolutions with squeeze-and-excitation (MONAI): the lightest network.",
+              "None (trained from scratch)", light=True),
+    Network3D("swinunetr_v2", "SwinUNETR-V2 encoder", "scratch_transformer",
+              "Swin transformer with residual convolution blocks before each stage (MICCAI 2023).",
+              "None (trained from scratch)"),
+    Network3D("vit_3d", "ViT-Small 3D (UNETR)", "scratch_transformer",
+              "Plain vision transformer on 8x16x16 patches, the encoder of UNETR: global attention from the first layer, "
+              "needs large datasets.", "None (trained from scratch)"),
     Network3D("dinov2_25d", "DINOv2-Small 2.5D", "2.5d",
               f"2D foundation model applied to up to {MAX_SLICES_25D} slices, combined by attention pooling: "
               "strong features without 3D pretraining.", "LVD-142M images (2D)"),
@@ -228,28 +252,41 @@ def download_ssl_weights():
     return path
 
 
-def _swin_vit(channels):
+def _swin_vit(channels, use_v2=False):
     from monai.networks.nets.swin_unetr import SwinTransformer
     return SwinTransformer(in_chans=channels, embed_dim=48, window_size=(7, 7, 7), patch_size=(2, 2, 2),
-                           depths=(2, 2, 2, 2), num_heads=(3, 6, 12, 24), spatial_dims=3)
+                           depths=(2, 2, 2, 2), num_heads=(3, 6, 12, 24), spatial_dims=3, use_v2=use_v2)
 
 
 class SwinViTEncoder(Encoder):
-    def __init__(self, channels, pretrained):
+    """Swin-ViT encoder of SwinUNETR: self-supervised weights, or SwinUNETR-V2 (a residual
+    convolution block before each stage) trained from scratch."""
+
+    def __init__(self, channels, pretrained, use_v2=False):
         super().__init__()
-        self.net = _swin_vit(1)
-        if pretrained:
+        self.use_v2 = use_v2
+        self.net = _swin_vit(1, use_v2)
+        if pretrained and not use_v2:
             self.net.load_state_dict(torch.load(download_ssl_weights(), map_location="cpu"), strict=True)
         self.net.patch_embed.proj = adapt_input(self.net.patch_embed.proj, channels)
         self.num_features = 768
 
+    def normalize(self, x):
+        return _zscore(x) if self.use_v2 else x
+
+    def _stage(self, x, i):
+        net = self.net
+        if self.use_v2:
+            x = getattr(net, f"layers{i}c")[0](x.contiguous())
+        return getattr(net, f"layers{i}")[0](x.contiguous())
+
     def early(self, x):
         net = self.net
         x = net.pos_drop(net.patch_embed(x))
-        return net.layers3[0](net.layers2[0](net.layers1[0](x.contiguous()).contiguous()).contiguous())
+        return self._stage(self._stage(self._stage(x, 1), 2), 3)
 
     def late(self, x):
-        return self.net.proj_out(self.net.layers4[0](x.contiguous()), normalize=True)
+        return self.net.proj_out(self._stage(x, 4), normalize=True)
 
 
 class DenseNetEncoder(Encoder):
@@ -270,6 +307,103 @@ class DenseNetEncoder(Encoder):
     def late(self, x):
         features = self.net.features
         return F.relu(features[features_index(features, "transition3"):](x))
+
+
+class StagedEncoder(Encoder):
+    """Encoders of Helpers.image3d.architectures (stem + stages, optional final norm), trained from
+    scratch: Grad-CAM on the output of the penultimate stage."""
+
+    def __init__(self, net):
+        super().__init__()
+        self.net = net
+        self.num_features = net.num_features
+
+    def normalize(self, x):
+        return _zscore(x)
+
+    def early(self, x):
+        x = self.net.stem(x)
+        for stage in self.net.stages[:-1]:
+            x = stage(x)
+        return x
+
+    def late(self, x):
+        x = self.net.stages[-1](x)
+        return self.net.norm(x) if hasattr(self.net, "norm") else x
+
+
+class SEResNeXtEncoder(Encoder):
+    def __init__(self, channels):
+        super().__init__()
+        from monai.networks.nets import SEResNext50
+        self.net = SEResNext50(spatial_dims=3, in_channels=channels, num_classes=1)
+        self.num_features = self.net.last_linear.in_features
+        self.net.last_linear = None
+
+    def normalize(self, x):
+        return _zscore(x)
+
+    def early(self, x):
+        net = self.net
+        return net.layer3(net.layer2(net.layer1(net.layer0(x))))
+
+    def late(self, x):
+        return self.net.layer4(x)
+
+
+class EfficientNetEncoder(Encoder):
+    def __init__(self, channels):
+        super().__init__()
+        from monai.networks.nets import EfficientNetBN
+        self.net = EfficientNetBN("efficientnet-b0", pretrained=False, spatial_dims=3, in_channels=channels, num_classes=1)
+        self.num_features = self.net._fc.in_features
+        self.net._fc = None
+        # Grad-CAM before the last down-sampling block
+        strided = [i for i, stage in enumerate(self.net._blocks) if max(stage[0]._depthwise_conv.stride) > 1]
+        self.split = strided[-1]  # stages (each an nn.Sequential of blocks)
+
+    def normalize(self, x):
+        return _zscore(x)
+
+    def early(self, x):
+        net = self.net
+        x = net._swish(net._bn0(net._conv_stem(net._conv_stem_padding(x))))
+        return net._blocks[:self.split](x)
+
+    def late(self, x):
+        net = self.net
+        x = net._blocks[self.split:](x)
+        return net._swish(net._bn1(net._conv_head(net._conv_head_padding(x))))
+
+
+class ViT3DEncoder(Encoder):
+    """ViT-Small on 8 x 16 x 16 patches (the encoder of UNETR, MONAI); the patch tokens form the
+    feature map."""
+    patch = (8, 16, 16)
+
+    def __init__(self, channels, shape):
+        super().__init__()
+        from monai.networks.nets import ViT
+        self.grid = tuple(s // p for s, p in zip(shape, self.patch))
+        self.net = ViT(in_channels=channels, img_size=tuple(shape), patch_size=self.patch, hidden_size=384,
+                       mlp_dim=1536, num_layers=12, num_heads=6, classification=False)
+        self.num_features = 384
+
+    def normalize(self, x):
+        return _zscore(x)
+
+    def _to_map(self, tokens):
+        return tokens.transpose(1, 2).reshape(tokens.shape[0], tokens.shape[2], *self.grid)
+
+    def early(self, x):
+        x = self.net.patch_embedding(x)
+        for block in self.net.blocks[:-1]:
+            x = block(x)
+        return self._to_map(x)
+
+    def late(self, x):
+        tokens = x.flatten(2).transpose(1, 2)
+        return self._to_map(self.net.norm(self.net.blocks[-1](tokens)))
 
 
 def features_index(sequential, name):
@@ -329,6 +463,19 @@ def create_encoder(spec, channels, pretrained, shape):
         return DenseNetEncoder(channels)
     if spec.key == "dinov2_25d":
         return SliceAttentionEncoder(channels, pretrained, shape[0])
+    from . import architectures
+    staged = {"mednext_s": architectures.MedNeXtEncoder, "convnextv2_3d": architectures.ConvNeXtV2Encoder,
+              "uxnet_3d": architectures.UXNetEncoder, "resenc_m": architectures.ResEncEncoder}
+    if spec.key in staged:
+        return StagedEncoder(staged[spec.key](channels))
+    if spec.key == "seresnext50_3d":
+        return SEResNeXtEncoder(channels)
+    if spec.key == "efficientnet_b0_3d":
+        return EfficientNetEncoder(channels)
+    if spec.key == "swinunetr_v2":
+        return SwinViTEncoder(channels, pretrained=False, use_v2=True)
+    if spec.key == "vit_3d":
+        return ViT3DEncoder(channels, shape)
     raise ValueError(f"unknown network {spec.key}")
 
 
@@ -372,7 +519,7 @@ def download_pretrained_weights():
     """Downloads the pretrained weights of every network into the local caches (used when
     building the Docker image, so that the automator works offline)."""
     for spec in NETWORKS:
-        if spec.family == "scratch":
+        if spec.family.startswith("scratch"):
             continue
         try:
             create_encoder(spec, 1, True, SHAPE_FOR_DOWNLOAD)

@@ -8,7 +8,7 @@ explains their predictions and gives you the trained models. Your data never lea
 |---|---|---|---|
 | **Tabular Classification** | `Train.csv`, `Test.csv` | 7 classical (Logistic Regression, SVM, Random Forest, SGD, MLP, Decision Tree, XGBoost) and 4 deep learning (TabPFNv2, TabICL, TabTransformer, TabR) | SHAP |
 | **Image Classification** | `Train.zip`, `Test.zip` of medical or other images (DICOM, NIfTI, PNG, JPEG, BMP, TIFF) | 10 pretrained networks: ResNet-50, EfficientNet-B0/V2-S, ConvNeXt(-V2)-Tiny, ViT-Small, DeiT III-Small, Swin-Tiny, MaxViT-Tiny, DINOv2-Small | Grad-CAM |
-| **3D Image Classification** (same automator) | `Train.zip`, `Test.zip` of studies with one or more series (DICOM series, NIfTI), e.g. T2 + ADC + DWI | 10 3D networks: MedicalNet ResNet-10/18/50, R3D-18, R(2+1)D-18, MC3-18, Video Swin-T, SwinUNETR Swin-ViT (self-supervised on CT), DenseNet-121 3D, DINOv2-Small 2.5D | 3D Grad-CAM |
+| **3D Image Classification** (same automator) | `Train.zip`, `Test.zip` of studies with one or more series (DICOM series, NIfTI), e.g. T2 + ADC + DWI | 18 3D networks. Pretrained: MedicalNet ResNet-10/18/50, R3D-18, R(2+1)D-18, MC3-18, Video Swin-T, SwinUNETR Swin-ViT (self-supervised on CT), DINOv2-Small 2.5D. From scratch: MedNeXt-S, ConvNeXt V2 3D, 3D UX-Net, nnU-Net ResEnc-M, SwinUNETR-V2, ViT-Small 3D (UNETR), SEResNeXt-50 3D, EfficientNet-B0 3D, DenseNet-121 3D | 3D Grad-CAM |
 | **Time Series Forecasting** | `Train.csv`, `Test.csv` in long format (e.g. repeated measurements of patients), with static, past and future covariates | 10 [neuralforecast](https://github.com/Nixtla/neuralforecast) networks: NHITS, NBEATSx, TiDE, KAN, DLinear, TFT, PatchTST, BiTCN, TCN, TimesNet | Integrated gradients |
 | **Object Detection** | `Train.zip`, `Test.zip` of 2D images or 3D volumes (DICOM, NIfTI, PNG, JPEG, …) with boxes in COCO, YOLO, Pascal VOC, CSV or mask format | 10 pretrained detectors: Faster R-CNN v2, RetinaNet v2, FCOS, Faster R-CNN MobileNetV3, SSDLite (torchvision); RT-DETR, RT-DETRv2, D-FINE-M, Deformable DETR, Conditional DETR (transformers) | D-RISE |
 
@@ -259,9 +259,13 @@ The code of the results page also covers the transformers detectors, DICOM and N
 - **TabPFNv2 and TabICL** are pretrained foundation models (no training); TabPFNv2 is limited to 10,000 samples,
   500 features and 10 classes. **TabTransformer** and **TabR** are trained with early stopping.
 - **3D networks**: MedicalNet ResNets are pretrained on 23 CT and MRI datasets, the video networks on Kinetics-400
-  (slices play the role of frames), the SwinUNETR encoder is self-supervised on 5,050 CT volumes; DenseNet-121 3D
-  is trained from scratch (fine-tuning only makes sense with it); the 2.5D model applies DINOv2 to up to 16 slices and
-  combines them by attention pooling. Feature extraction takes seconds per study on CPU; fine-tuning needs a GPU.
+  (slices play the role of frames), the SwinUNETR encoder is self-supervised on 5,050 CT volumes; the 2.5D model
+  applies DINOv2 to up to 16 slices and combines them by attention pooling. Feature extraction takes seconds per
+  study on CPU; fine-tuning needs a GPU.
+- **3D architectures trained from scratch** (no pretrained weights, so fine-tuning only, ideally with a few hundred
+  studies): the encoders of state-of-the-art medical networks, MedNeXt-S (MICCAI 2023), ConvNeXt V2 3D (2023), 3D UX-Net
+  (ICLR 2023), nnU-Net ResEnc-M (2024), SwinUNETR-V2 (2023) and ViT-Small 3D (UNETR), and the SEResNeXt-50,
+  EfficientNet-B0 and DenseNet-121 3D CNNs (MONAI).
 - **Detectors** are pretrained on COCO and fine-tuned on your boxes, with images resized to a square (320 to
   1024 px). A GPU is strongly recommended: on CPU, fine-tuning takes minutes per epoch for the larger networks;
   Faster R-CNN MobileNetV3 and SSDLite are the fast choices. Hold-out validation trains each network once.
