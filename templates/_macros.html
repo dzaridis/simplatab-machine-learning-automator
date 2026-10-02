@@ -28,3 +28,31 @@
 {% endmacro %}
 
 {% macro filesize(bytes) %}{% if bytes >= 1048576 %}{{ '%.1f' % (bytes / 1048576) }} MB{% elif bytes >= 1024 %}{{ '%.0f' % (bytes / 1024) }} KB{% else %}{{ bytes }} B{% endif %}{% endmacro %}
+
+{# The validation splits of the run (Materials/Splits), to reproduce the folds. #}
+{% macro splits_card(splits) %}
+{% if splits %}
+<div class="card mb-4" id="splits">
+    <div class="card-header py-3"><i class="bi bi-diagram-3 me-2 text-primary" aria-hidden="true"></i>Validation splits</div>
+    <div class="p-3 small-muted border-bottom">{{ splits.description }}
+        Each row of <code>splits.csv</code> is a sample of a fold (<code>fold</code>, <code>set</code>, <code>id</code>{% if splits.columns %}, {{ splits.columns | join(', ') }}{% endif %}); <code>splits.json</code> lists the ids of each fold.</div>
+    {% if splits.folds %}
+    <div class="table-responsive">
+        <table class="table table-sm mb-0 align-middle">
+            <thead><tr><th scope="col" class="ps-3">{{ 'Window' if splits.kind == 'rolling_origin' else 'Fold' }}</th>{% for name in splits.sets %}<th scope="col" class="text-nowrap">{{ name | replace('_', ' ') | capitalize }}</th>{% endfor %}</tr></thead>
+            <tbody>
+                {% for fold in splits.folds %}
+                <tr><td class="ps-3 tabular-nums">{{ fold.fold }}</td>{% for name in splits.sets %}<td class="tabular-nums">{{ fold.counts.get(name, 0) }}</td>{% endfor %}</tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    <div class="p-3 d-flex flex-wrap gap-2 border-top">
+        {% for item in splits.files %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_file', filepath=item.path) }}"><i class="bi bi-download me-1" aria-hidden="true"></i>{{ item.name }} <span class="small-muted">· {{ filesize(item.size) }}</span></a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endmacro %}

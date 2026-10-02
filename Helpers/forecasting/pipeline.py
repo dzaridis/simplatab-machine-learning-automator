@@ -25,6 +25,7 @@ from . import metrics as fm
 from . import plots
 from .data import ID, TARGET, TIME, DataError, prepare
 from .models import BY_KEY, build, search_space
+from Helpers.splits import write_splits
 
 MATERIALS = "Materials"
 MAX_EXPLAINED_SERIES = 30
@@ -102,6 +103,21 @@ def make_folds(train, folds, horizon):
                             "reduce the number of folds or the horizon.")
         windows.append((pd.concat(fit, ignore_index=True), pd.concat(score, ignore_index=True)))
     return windows
+
+
+def write_window_splits(windows, folds, horizon):
+    """Materials/Splits/: for each rolling-origin window and series, the time range fitted on
+    and the time range scored."""
+    rows = []
+    for k, (fit, score) in enumerate(windows, start=1):
+        for name, frame in (("train", fit), ("validation", score)):
+            for series, part in frame.groupby("unique_id", sort=False):
+                rows.append({"fold": k, "set": name, "id": series, "start": part["ds"].min(), "end": part["ds"].max(),
+                             "points": len(part)})
+    write_splits(rows, materials=MATERIALS, kind="rolling_origin",
+                 description=f"Rolling-origin validation: {folds} windows of {horizon} points at the end of every "
+                             "Train.csv series; window k is fitted on the points before it (train) and scored on its "
+                             f"{horizon} points (validation). id: the ID of the series; start and end: its Time range.")
 
 
 def _static(data, frame):
@@ -280,6 +296,7 @@ def _run(input_folder, params):
 
     # ---- Rolling-origin validation ------------------------------------------------------
     windows = make_folds(data.train, folds, horizon)
+    write_window_splits(windows, folds, horizon)
     lengths = windows[0][0].groupby("unique_id").size()
     longest = int(lengths.median())  # lookback candidates up to the typical history of the first window
     _banner(f"Training on K-Fold cross validation (rolling origin: {folds} windows of {horizon} points)")

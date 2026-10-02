@@ -119,8 +119,11 @@ class DataChecker:
         self.check_target_column(train)
 
         # Set index column
+        self.train_has_ids = "ID" in train.columns or "patient_id" in train.columns
         train = self.set_index_column(train)
         test= self.set_index_column(test)
+        # Line of each row kept in Train.csv (the first data line is 1), for the validation splits
+        self.train_rows = (np.flatnonzero(~train.isna().any(axis=1).to_numpy()) + 1).tolist()
 
         # Remove rows with NaN values
         train = self.remove_nan_rows(train)

@@ -959,14 +959,40 @@ def _relative(path, root):
     return os.path.relpath(path, root).replace(os.sep, "/")
 
 
+def collect_splits(root):
+    """The validation splits of the run (Materials/Splits), summarised for the results page."""
+    folder = os.path.join(root, "Splits")
+    if not os.path.isfile(os.path.join(folder, "splits.csv")):
+        return None
+    splits = {"kind": "kfold", "description": "", "folds": [], "sets": [], "columns": [], "files": []}
+    try:
+        table = pd.read_csv(os.path.join(folder, "splits.csv"))
+        if os.path.isfile(os.path.join(folder, "splits.json")):
+            with open(os.path.join(folder, "splits.json")) as f:
+                meta = json.load(f)
+            splits["kind"], splits["description"] = meta.get("kind", "kfold"), meta.get("description", "")
+        splits["sets"] = list(dict.fromkeys(table["set"]))
+        splits["columns"] = [c for c in table.columns if c not in ("fold", "set", "id")]
+        for fold, part in table.groupby("fold", sort=True):
+            splits["folds"].append({"fold": int(fold), "counts": part["set"].value_counts().to_dict()})
+    except Exception:
+        pass
+    for name in ("splits.csv", "splits.json"):
+        path = os.path.join(folder, name)
+        if os.path.exists(path):
+            splits["files"].append({"name": name, "path": _relative(path, root), "size": os.path.getsize(path)})
+    return splits
+
+
 def collect_results(root):
     """Everything the results page shows, read from the Materials folder."""
     results = {"test": None, "kfold": None, "kfold_name": None, "best": None, "curves": [],
                "class_curves": [], "confusion": {}, "shap": {}, "gradcam": {}, "models": [], "files": [],
                "predictions": [], "classes": [], "skipped": [], "notes": [], "info": {},
-               "automator": get_automator("tabular")}
+               "automator": get_automator("tabular"), "splits": None}
     if not os.path.isdir(root):
         return results
+    results["splits"] = collect_splits(root)
     # Classes and settings of the run (older tabular runs have none)
     info_path = os.path.join(root, "run_info.json")
     if os.path.exists(info_path):
@@ -1081,7 +1107,7 @@ def collect_forecast_results(root):
     with open(os.path.join(root, "run_info.json")) as f:
         info = json.load(f)
     results = {"info": info, "automator": get_automator("time-series-forecasting"), "test": None, "kfold": None,
-               "best": None, "forecasts": {}, "explain": {}, "metric_plots": [], "models": [], "tables": [], "files": []}
+               "best": None, "forecasts": {}, "explain": {}, "metric_plots": [], "models": [], "tables": [], "files": [], "splits": collect_splits(root)}
     for dirpath, _, filenames in os.walk(root):
         for name in sorted(filenames):
             path = os.path.join(dirpath, name)
@@ -1147,7 +1173,7 @@ def collect_detection_results(root):
     metrics = info["metrics"]
     results = {"info": info, "automator": get_automator("object-detection"), "metrics": metrics, "test": None,
                "validation": None, "best": None, "curves": [], "detections": {}, "drise": {}, "models": [],
-               "predictions": [], "files": []}
+               "predictions": [], "files": [], "splits": collect_splits(root)}
     for dirpath, _, filenames in os.walk(root):
         for name in sorted(filenames):
             path = os.path.join(dirpath, name)
@@ -1198,7 +1224,7 @@ def collect_segmentation_results(root):
     lower = {"HD95", "ASSD"}  # distances: lower is better
     results = {"info": info, "automator": get_automator("image-segmentation"), "metrics": metrics, "lower": sorted(lower),
                "test": None, "validation": None, "best": None, "plots": [], "overlays": {}, "per_class": [],
-               "models": [], "predictions": [], "tables": [], "files": []}
+               "models": [], "predictions": [], "tables": [], "files": [], "splits": collect_splits(root)}
     for dirpath, _, filenames in os.walk(root):
         for name in sorted(filenames):
             path = os.path.join(dirpath, name)
@@ -1405,7 +1431,9 @@ def run_pipeline(input_folder, output_folder, params):
 
         # Run the pipeline
         print("------------- \n", "Training on K-Fold cross validation \n", "-------------")
-        params_dict, scores_storage, thresholds, _ = train_k_fold(X_train, y_train)
+        params_dict, scores_storage, thresholds, _ = train_k_fold(
+            X_train, y_train, rows=getattr(data_checker, "train_rows", None),
+            has_ids=getattr(data_checker, "train_has_ids", True))
         print("------------- \n", "Training on K-Fold cross validation completed successfully \n", "-------------")
 
         print("------------- \n", "Evaluating algorithms on Test.csv \n", "-------------")
