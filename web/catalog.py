@@ -66,7 +66,7 @@ AUTOMATORS = [
         tagline="Deep learning classifiers for medical images, 2D and 3D",
         description=(
             "Train, validate and explain ten state-of-the-art pretrained CNNs and vision transformers "
-            "on DICOM, NIfTI, PNG or JPEG images, or ten 3D networks on studies made of one or more "
+            "on DICOM, NIfTI, PNG or JPEG images, or eighteen 3D networks on studies made of one or more "
             "series (e.g. T2, ADC and DWI of an MRI), with the same validation standards as the tabular automator."
         ),
         icon="images",
@@ -81,7 +81,8 @@ AUTOMATORS = [
         steps=[
             "Medical image preparation: DICOM rescaling, CT windows, volume slices, 16-bit normalisation",
             "Ten pretrained networks: ResNet, EfficientNet(V2), ConvNeXt(V2), ViT, DeiT III, Swin, MaxViT, DINOv2",
-            "3D: series aligned in patient space; MedicalNet, video and SwinUNETR networks, DenseNet-3D, 2.5D DINOv2",
+            "3D: series aligned in patient space; 18 networks: MedicalNet, video, SwinUNETR, 2.5D DINOv2, and MedNeXt, "
+            "ConvNeXt V2, 3D UX-Net, nnU-Net ResEnc, ViT and more trained from scratch",
             "Feature extraction (fast, CPU friendly) or full fine-tuning (GPU recommended)",
             "Stratified K-fold cross-validation (grouped by patient in 3D) with decision threshold optimisation",
             "Evaluation on the external test set",

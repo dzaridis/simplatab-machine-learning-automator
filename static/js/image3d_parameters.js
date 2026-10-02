@@ -49,6 +49,8 @@
 
         var n = selected().length;
         modelsError.classList.toggle('d-none', n > 0);
+        var scratch = selected().some(function (net) { return net.getAttribute('data-group') === 'scratch'; });
+        document.getElementById('scratch-warning').classList.toggle('d-none', !(scratch && !finetune));
         var channels = series.length ? chosenSeries().length : 1;
         if (seriesError) seriesError.classList.toggle('d-none', channels > 0);
         var shape = document.getElementById('shape').selectedOptions[0].textContent.replace(' (default)', '');

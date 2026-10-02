@@ -77,11 +77,12 @@
                 <div class="card mb-4">
                     <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Networks</div>
                     <div class="settings-section">
-                        <p class="help mt-0 mb-3">3D networks pretrained on medical volumes or videos, a CT self-supervised transformer, a network trained from scratch and a 2.5D slice model. Their first layer is adapted to the number of series. Selecting several lets you compare them on the same folds.</p>
+                        <p class="help mt-0 mb-3">3D networks pretrained on medical volumes or videos, a CT self-supervised transformer, a 2.5D slice model, and state-of-the-art 3D architectures trained from scratch. The first layer of pretrained networks is adapted to the number of series. Selecting several lets you compare them on the same folds.</p>
                         {% for group, families, title, subtitle in [
                             ("medical", ["medical"], "Medical 3D networks", "Pretrained on 23 CT and MRI datasets (MedicalNet): the closest to your data."),
                             ("video", ["video"], "Video networks", "Pretrained on Kinetics-400 videos: spatio-temporal filters transfer well to volumes, the slices playing the role of frames."),
-                            ("other", ["ssl", "scratch", "2.5d"], "Other approaches", "Self-supervised on CT, trained from scratch, or a 2D foundation model applied slice by slice."),
+                            ("other", ["ssl", "2.5d"], "Self-supervised and 2.5D", "Self-supervised on CT volumes, or a 2D foundation model applied slice by slice."),
+                            ("scratch", ["scratch", "scratch_transformer"], "Modern architectures trained from scratch", "State-of-the-art 3D CNNs and transformers without pretrained weights: they learn everything from your studies, so they need fine-tuning and, ideally, a few hundred studies or more."),
                         ] %}
                         <div class="{% if not loop.first %}mt-4{% endif %}">
                             <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
@@ -115,6 +116,9 @@
                         </div>
                         {% endfor %}
                         <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one network.</div>
+                        <div class="alert alert-warning small mt-3 mb-0 d-none" id="scratch-warning" role="status">
+                            <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>Networks trained from scratch have random features until they are trained: use them with <strong>fine-tuning</strong> (Training section below).
+                        </div>
                     </div>
                 </div>
 

@@ -194,10 +194,11 @@ assert not {{m.split('.')[0] for m in sys.modules}} & {{'Helpers', 'web'}}
         self.assertEqual(run.returncode, 0, run.stderr[-3000:])
 
     def test_finetune_single_series(self):
-        result, summary = self.run_pipeline("finetune", ["r3d_18"], layout="single", per_class=5)
+        result, summary = self.run_pipeline("finetune", ["r3d_18", "uxnet_3d"], layout="single", per_class=5)
         self.assertEqual(result, "Pipeline completed successfully")
         self.assertEqual(summary["default_channels"], ["volume"])
-        self.assertTrue(os.path.exists(os.path.join(self.dir, "Materials", "Models", "R3D-18.pt")))
+        for name in ("R3D-18", "3D_UX-Net"):  # pretrained and from scratch
+            self.assertTrue(os.path.exists(os.path.join(self.dir, "Materials", "Models", f"{name}.pt")), name)
 
     def test_too_few_patients_for_the_folds(self):
         from Helpers.image3d.pipeline import run_image3d_pipeline
