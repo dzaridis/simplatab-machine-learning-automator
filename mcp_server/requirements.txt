@@ -1,0 +1,3 @@
+# The MCP server's own environment (Python >= 3.10). The Simplatab pipelines it runs use the
+# requirements.txt of the repository (Python 3.9).
+mcp==2.2.0
