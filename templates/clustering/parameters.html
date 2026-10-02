@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+{% from "_macros.html" import page_header %}
+{% block title %}Configure · Clustering{% endblock %}
+
+{% macro algorithm_badges(algorithm) %}
+<span class="d-flex flex-wrap gap-1 mt-2">
+    {% if algorithm.uses_k %}
+    <span class="badge rounded-pill text-bg-light border fw-medium"><i class="bi bi-123" aria-hidden="true"></i> Takes k</span>
+    {% else %}
+    <span class="badge rounded-pill text-bg-light border fw-medium"><i class="bi bi-magic" aria-hidden="true"></i> Finds k itself</span>
+    {% endif %}
+    {% if algorithm.noise %}<span class="badge rounded-pill text-bg-light border fw-medium"><i class="bi bi-x-diamond" aria-hidden="true"></i> Leaves noise</span>{% endif %}
+    {% if algorithm.slow %}<span class="badge rounded-pill text-bg-warning fw-medium"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Slow on large tables</span>{% endif %}
+    {% if algorithm.max_samples < 100000 %}<span class="badge rounded-pill border text-body-secondary fw-medium">≤ {{ '{:,}'.format(algorithm.max_samples) }} rows</span>{% endif %}
+</span>
+{% endmacro %}
+
+{% block content %}
+{{ page_header("Configure the pipeline", "The defaults are a good starting point. Each setting explains what it does.", 2, automator) }}
+{% set labeled = summary.has_labels and summary.classes | length >= 2 %}
+
+<div class="container pb-4">
+    <form id="params-form" action="{{ url_for('clustering_parameters') }}" method="post" novalidate
+          data-rows="{{ summary.train_rows }}" data-max-k="{{ summary.max_k }}" data-labeled="{{ 1 if labeled else 0 }}">
+        <div class="row g-4">
+            <div class="col-lg-8 order-2 order-lg-1">
+                {% if previous_results %}
+                <div class="alert d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between" role="note"
+                     style="background: var(--sb-surface); border: 1px solid var(--sb-border);">
+                    <div class="d-flex gap-3">
+                        <i class="bi bi-info-circle-fill text-primary fs-5" aria-hidden="true"></i>
+                        <div><div class="fw-semibold">Starting this run replaces the previous results</div>
+                            <div class="small-muted">Download them first if you want to keep them.</div></div>
+                    </div>
+                    <a class="btn btn-sm btn-outline-primary text-nowrap" href="{{ url_for('download_all') }}">
+                        <i class="bi bi-file-earmark-zip me-1" aria-hidden="true"></i>Download previous results</a>
+                </div>
+                {% endif %}
+
+                {% if summary.warnings %}
+                <div class="alert alert-warning d-flex gap-3" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill fs-5" aria-hidden="true"></i>
+                    <div><div class="fw-semibold">Check your data</div>
+                        <ul class="mb-0 ps-3">{% for warning in summary.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>
+                </div>
+                {% endif %}
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-intersect me-2 text-primary" aria-hidden="true"></i>Number of clusters</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">For the algorithms that take a number of clusters <em>k</em>. Density-based algorithms, affinity propagation and the Bayesian mixture find it themselves (their settings are tuned with the criterion below).</p>
+                        <div class="d-flex flex-column gap-2">
+                            {% if labeled %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="n_clusters_mode" id="k-classes" value="classes" checked>
+                                <label class="form-check-label" for="k-classes"><strong>Number of classes ({{ summary.classes | length }})</strong> <span class="small-muted">: do the clusters recover the Target classes?</span></label>
+                            </div>
+                            {% endif %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="n_clusters_mode" id="k-auto" value="auto" {% if not labeled %}checked{% endif %}>
+                                <label class="form-check-label" for="k-auto"><strong>Automatic</strong> <span class="small-muted">: each algorithm tries every k in a range and keeps the best by a criterion</span></label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="n_clusters_mode" id="k-fixed" value="fixed">
+                                <label class="form-check-label" for="k-fixed"><strong>Fixed</strong></label>
+                            </div>
+                        </div>
+                        <div class="row g-3 mt-1" id="k-auto-settings">
+                            <div class="col-sm-4">
+                                <label class="form-label small fw-semibold" for="k_min">From k =</label>
+                                <input type="number" class="form-control" id="k_min" name="k_min" value="2" min="2" max="{{ summary.max_k }}">
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label small fw-semibold" for="k_max">To k =</label>
+                                <input type="number" class="form-control" id="k_max" name="k_max" value="{{ [10, summary.max_k] | min }}" min="2" max="{{ summary.max_k }}">
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label small fw-semibold" for="k_criterion">Criterion</label>
+                                <select class="form-select" id="k_criterion" name="k_criterion">
+                                    <option value="silhouette" selected>Silhouette (higher)</option>
+                                    <option value="calinski_harabasz">Calinski-Harabasz (higher)</option>
+                                    <option value="davies_bouldin">Davies-Bouldin (lower)</option>
+                                </select>
+                            </div>
+                            <div class="col-12"><div class="form-text" id="k-feedback">At most {{ summary.max_k }} clusters (a third of the samples, up to 30).</div></div>
+                        </div>
+                        <div class="row g-3 mt-1 d-none" id="k-fixed-settings">
+                            <div class="col-sm-4">
+                                <label class="form-label small fw-semibold" for="n_clusters">k =</label>
+                                <input type="number" class="form-control" id="n_clusters" name="n_clusters" value="{{ summary.suggested_k or 3 }}" min="2" max="{{ summary.max_k }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-funnel me-2 text-primary" aria-hidden="true"></i>Features</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="scaling">Scaling</label></h2>
+                                <p class="help">Distances need comparable features. Standard: zero mean and unit variance; robust: median and interquartile range (outliers); min-max: 0 to 1. Categorical columns are one-hot encoded.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="scaling" name="scaling">
+                                    <option value="standard" selected>Standard (default)</option>
+                                    <option value="robust">Robust</option>
+                                    <option value="minmax">Min-max</option>
+                                    <option value="none">None</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2>Dimensionality reduction</h2>
+                                <p class="help">PCA keeps the components explaining a share of the variance: less noise and faster algorithms with many (correlated) features. The profiles and explanations stay in the original features.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="reduction" name="reduction" value="pca">
+                                    <label class="form-check-label" for="reduction">PCA</label>
+                                </div>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">Variance kept</span>
+                                    <input type="number" class="form-control" id="pca_variance" name="pca_variance" value="0.95" min="0.5" max="0.99" step="0.01" disabled>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h2 class="mb-1">Columns used</h2>
+                        <p class="help mb-3">Untick a column to leave it out of the clustering (e.g. an outcome you want to compare the clusters with afterwards).{% if summary.dropped %} Left out automatically: {% for item in summary.dropped %}{{ item.column }} ({{ item.reason }}){{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for column in summary.features %}
+                            <input type="checkbox" class="btn-check" id="use_{{ loop.index0 }}" data-column-index="{{ loop.index0 }}" checked autocomplete="off">
+                            <label class="btn btn-sm btn-outline-primary" for="use_{{ loop.index0 }}">{{ column }}{% if column in summary.categorical %} <span class="small-muted">· categorical</span>{% endif %}</label>
+                            <input type="hidden" name="ignore_{{ loop.index0 }}" value="false" id="ignore_{{ loop.index0 }}">
+                            {% endfor %}
+                        </div>
+                        <div class="invalid-feedback d-block mt-2 d-none" id="features-error" role="alert">Keep at least one column.</div>
+                    </div>
+                </div>
+
+                <div class="card mb-4">
+                    <div class="card-header py-3"><i class="bi bi-cpu me-2 text-primary" aria-hidden="true"></i>Algorithms</div>
+                    <div class="settings-section">
+                        <p class="help mt-0 mb-3">Each algorithm makes different assumptions about what a cluster is; comparing several is the point. Algorithms limited to fewer rows than Train.csv has are disabled.</p>
+                        {% for family, title, subtitle in families %}
+                        <div class="{% if not loop.first %}mt-4{% endif %}">
+                            <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-3">
+                                <div><h2>{{ title }}</h2><p class="help">{{ subtitle }}</p></div>
+                                <div class="btn-group btn-group-sm" role="group" aria-label="Select {{ title }}">
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ family }}" data-value="1">Select all</button>
+                                    <button type="button" class="btn btn-outline-secondary" data-select-group="{{ family }}" data-value="0">None</button>
+                                </div>
+                            </div>
+                            <div class="row g-2">
+                                {% for algorithm in algorithms if algorithm.family == family %}
+                                {% set too_many = summary.train_rows > algorithm.max_samples %}
+                                <div class="col-md-6">
+                                    <label class="option-card {% if too_many %}opacity-50{% endif %}">
+                                        <input type="checkbox" name="{{ algorithm.key }}" value="true" data-group="{{ family }}" data-deep="{{ 1 if family == 'deep' else 0 }}"
+                                               {% if algorithm.default and not too_many %}checked{% endif %} {% if too_many %}disabled{% endif %}>
+                                        <span class="option-body">
+                                            <span class="tick"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+                                            <span>
+                                                <span class="title d-block">{{ algorithm.name }}</span>
+                                                <span class="desc d-block">{{ algorithm.description }}</span>
+                                                {{ algorithm_badges(algorithm) }}
+                                            </span>
+                                        </span>
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                        <div class="invalid-feedback d-block mt-3 d-none" id="models-error" role="alert">Select at least one algorithm.</div>
+                    </div>
+                    <div class="settings-section" id="deep-settings">
+                        <h2 class="mb-1">Deep networks</h2>
+                        <p class="help mb-3">
+                            {% if gpu %}<i class="bi bi-gpu-card me-1 text-success" aria-hidden="true"></i>GPU detected: {{ gpu }}.
+                            {% else %}<i class="bi bi-cpu me-1" aria-hidden="true"></i>No GPU detected ({{ cpu_count }} CPU cores): fine for tables of a few thousand rows.{% endif %}
+                            The networks are first pretrained (reconstruction, or contrastive for SCARF), then trained to cluster; training stops early once the clusters are stable.</p>
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label small fw-semibold" for="pretrain_epochs">Pretraining epochs</label>
+                                <input type="number" class="form-control" id="pretrain_epochs" name="pretrain_epochs" value="100" min="10" max="1000">
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label small fw-semibold" for="epochs">Clustering epochs</label>
+                                <input type="number" class="form-control" id="epochs" name="epochs" value="100" min="10" max="1000">
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label small fw-semibold" for="latent_dim">Latent dimensions</label>
+                                <input type="number" class="form-control" id="latent_dim" name="latent_dim" value="10" min="2" max="64">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header py-3"><i class="bi bi-sliders me-2 text-primary" aria-hidden="true"></i>Validation and evaluation</div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="k_folds">K-fold validation</label></h2>
+                                <p class="help">Each algorithm is fitted again on K-1 folds and assigns the samples of the remaining fold: the held-out clusters are scored, and compared with the clusters found on all of Train.csv (<strong>stability</strong>). Costs K extra fits per algorithm.</p>
+                            </div>
+                            <div class="col-md-5">
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="validation" checked>
+                                    <label class="form-check-label" for="validation">Validate</label>
+                                    <input type="hidden" name="validation" id="validation-value" value="kfold">
+                                </div>
+                                <input type="number" class="form-control" id="k_folds" name="k_folds" value="{{ [5, summary.max_folds] | min }}" min="2" max="{{ summary.max_folds }}" aria-label="Number of folds">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-7">
+                                <h2><label for="selection_metric">Best algorithm by</label></h2>
+                                <p class="help">The metric that picks the best algorithm, averaged over the validation folds (on Test.csv, else Train.csv, without validation). {% if labeled %}With labels, ARI or AMI measure how well the clusters recover the classes.{% else %}Without labels, the silhouette measures how compact and separated the clusters are.{% endif %}</p>
+                            </div>
+                            <div class="col-md-5">
+                                <select class="form-select" id="selection_metric" name="selection_metric">
+                                    {% if labeled %}{% for metric in external %}<option value="{{ metric }}" {% if metric == 'ARI' %}selected{% endif %}>{{ metric }}</option>{% endfor %}{% endif %}
+                                    {% for metric in internal %}<option value="{{ metric }}" {% if metric == 'Silhouette' and not labeled %}selected{% endif %}>{{ metric }}{% if metric == 'Davies-Bouldin' %} (lower is better){% endif %}</option>{% endfor %}
+                                    <option value="{{ stability }}" data-needs-validation="1">{{ stability }}</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h2 class="mb-2">Descriptions of the clusters</h2>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="explain" name="explain" value="true" checked>
+                            <label class="form-check-label" for="explain">SHAP explanations <span class="small-muted">: a random forest learns to recognise each cluster; SHAP shows the features it relies on</span></label>
+                        </div>
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input" type="checkbox" role="switch" id="tsne" name="tsne" value="true" checked>
+                            <label class="form-check-label" for="tsne">t-SNE projection <span class="small-muted">: next to PCA, a non-linear 2D map of up to 3,000 samples</span></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4 order-1 order-lg-2">
+                <div class="card p-4" style="position: sticky; top: 5.5rem;">
+                    <h2 class="h6 fw-bold mb-3"><i class="bi bi-database me-2 text-primary" aria-hidden="true"></i>Your data</h2>
+                    <div class="row g-2 mb-3 text-center">
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ '{:,}'.format(summary.train_rows) }}</div><div class="small-muted">samples</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.features | length }}</div><div class="small-muted">features</div></div></div>
+                        <div class="col-4"><div class="rounded-3 p-2" style="background: var(--sb-surface-2)"><div class="fw-bold tabular-nums">{{ summary.classes | length if labeled else '–' }}</div><div class="small-muted">classes</div></div></div>
+                    </div>
+                    <dl class="row small mb-3">
+                        <dt class="col-5 fw-normal small-muted">Evaluation</dt><dd class="col-7 mb-1">{{ 'Supervised: clusters vs. Target' if labeled else 'Unsupervised: internal metrics' }}</dd>
+                        <dt class="col-5 fw-normal small-muted">Features</dt><dd class="col-7 mb-1">{{ summary.numeric | length }} numeric, {{ summary.categorical | length }} categorical</dd>
+                        <dt class="col-5 fw-normal small-muted">Test.csv</dt><dd class="col-7 mb-1">{{ ('{:,}'.format(summary.test_rows) ~ ' samples' ~ (' with Target' if summary.test_has_labels else '')) if summary.has_test else 'none' }}</dd>
+                        {% if labeled %}<dt class="col-5 fw-normal small-muted">Classes</dt><dd class="col-7 mb-1 text-break">{% for name, count in summary.class_counts.items() %}{{ name }} ({{ count }}){{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+                    </dl>
+                    <a class="small" href="{{ url_for('clustering') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Upload different files</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="action-bar">
+            <div class="container px-0 d-flex flex-column flex-sm-row gap-3 align-items-sm-center justify-content-between">
+                <div class="small-muted d-none d-sm-block" id="run-summary" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary btn-lg" id="run-btn">
+                    <i class="bi bi-play-fill me-1" aria-hidden="true"></i>Run pipeline
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/clustering_parameters.js') }}"></script>
+{% endblock %}

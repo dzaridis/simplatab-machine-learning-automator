@@ -11,6 +11,7 @@ from collections import deque
 PHASES = {
     "tabular": ["bias", "data", "kfold", "test", "done"],
     "time-series-forecasting": ["data", "kfold", "test", "done"],
+    "clustering": ["data", "kfold", "test", "done"],
 }
 DEFAULT_PHASES = ["prep", "kfold", "test", "done"]
 PHASE_NAMES = {"bias": "bias assessment", "data": "preparing data", "prep": "preparing images",
@@ -60,7 +61,8 @@ class Status:
             self.phase = "data"
         elif text.startswith("Preparing images"):
             self.phase = "prep"
-        elif text.startswith(("Training on K-Fold cross validation", "Training on hold-out validation")) and "completed" not in text:
+        elif text.startswith(("Training on K-Fold cross validation", "Training on hold-out validation",
+                              "Clustering Train.csv")) and "completed" not in text:
             self.phase = "kfold"
         elif text.startswith("Evaluating algorithms on"):
             self.phase = "test"

@@ -18,8 +18,8 @@ from .contracts import AUTOMATORS
 from .jobs import Experiments, WorkerError
 
 INSTRUCTIONS = """Simplatab runs validated machine learning experiments on research data: tabular classification,
-2D/3D image classification, 2D/3D object detection, 2D/3D image segmentation (incl. the official nnU-Net) and
-time series forecasting. Each experiment trains several models with K-fold (or hold-out / rolling-origin)
+2D/3D image classification, 2D/3D object detection, 2D/3D image segmentation (incl. the official nnU-Net),
+time series forecasting and clustering of tabular data (unsupervised, or evaluated against labels). Each experiment trains several models with K-fold (or hold-out / rolling-origin)
 validation, evaluates them on an external test set, explains them, and exports the trained models and the
 validation splits.
 
@@ -31,7 +31,8 @@ Workflow:
    mounts a folder on /data; host paths of the mounted folders are translated) or upload_file (base64, in
    chunks for large files).
 3. create_experiment(automator, train, test): checks the data like the Simplatab web upload and returns a
-   summary, errors, warnings and the default configuration. Fix the data if there are errors.
+   summary, errors, warnings and the default configuration (test is optional for clustering). Fix the data if
+   there are errors.
 4. start_experiment(experiment_id, config): fields left out keep their defaults; dry_run=true only validates.
    (run_experiment does 3 and 4 in one call.)
 5. get_experiment(experiment_id) every minute or so until state is completed/failed/cancelled (runs take
@@ -100,11 +101,11 @@ def create_server(experiments=None):
     def get_example_data(automator: str, variant: str = "2d") -> dict[str, Any]:
         """Writes an example dataset of an automator in the workspace and returns its train and test paths and
         a quick configuration (a few minutes on a CPU; detection and 3D segmentation up to ~15), ready for
-        run_experiment. variant: 2d or 3d (image
-        classification, object detection and segmentation)."""
+        run_experiment. variant: 2d or 3d (image classification, object detection and segmentation); labeled or
+        unlabeled (clustering: with or without the Target column)."""
         _check_automator(automator)
-        if variant not in ("2d", "3d"):
-            raise ToolError("variant is 2d or 3d.")
+        if variant not in ("2d", "3d", "labeled", "unlabeled"):
+            raise ToolError("variant is 2d or 3d (image automators), labeled or unlabeled (clustering).")
         try:
             return ex().worker("example", automator=automator, variant=variant)
         except WorkerError as e:
@@ -141,10 +142,11 @@ def create_server(experiments=None):
 
     # ---- experiments ----------------------------------------------------------------------
     @server.tool()
-    def create_experiment(automator: str, train: str, test: str, name: Optional[str] = None) -> dict[str, Any]:
+    def create_experiment(automator: str, train: str, test: Optional[str] = None, name: Optional[str] = None) -> dict[str, Any]:
         """Creates an experiment from training and test data and checks them against the automator's contract.
         train and test: paths readable by the server (absolute, or relative to /data, the uploads or the
-        workspace): CSV files (tabular, time-series-forecasting), or zip files or folders (image automators).
+        workspace): CSV files (tabular, time-series-forecasting, clustering), or zip files or folders (image
+        automators). test is required, except for clustering (optional: its samples are assigned to the clusters).
         automator: an automator id, or "auto" to choose it from the data (as inspect_data).
         Returns experiment_id, state (ready or invalid), the automator, errors, warnings, the data summary
         (classes, columns, series, counts...), default_config and the experiment folder."""
@@ -165,7 +167,7 @@ def create_server(experiments=None):
             raise _error(e)
 
     @server.tool()
-    def run_experiment(automator: str, train: str, test: str, config: Optional[dict] = None,
+    def run_experiment(automator: str, train: str, test: Optional[str] = None, config: Optional[dict] = None,
                        name: Optional[str] = None) -> dict[str, Any]:
         """create_experiment and start_experiment in one call (automator may be "auto"). If the data has errors,
         nothing runs and the errors are returned; if the configuration is invalid, the experiment stays ready
@@ -257,9 +259,10 @@ def create_server(experiments=None):
 
     # ---- prompts --------------------------------------------------------------------------
     @server.prompt()
-    def run_simplatab_experiment(train: str, test: str, goal: str = "") -> str:
+    def run_simplatab_experiment(train: str, test: str = "", goal: str = "") -> str:
         """Instructions for an agent to run a complete Simplatab experiment on a dataset."""
-        return (f"Run a Simplatab experiment on the training data {train} and the test data {test}."
+        return (f"Run a Simplatab experiment on the training data {train}"
+                + (f" and the test data {test}." if test else " (no test data: only clustering accepts that).")
                 + (f" Goal: {goal}." if goal else "") +
                 "\n1. Call inspect_data on the training data and read the data contract of the suggested automator "
                 "(get_data_contract). If the data does not follow the contract, explain what to change and stop."

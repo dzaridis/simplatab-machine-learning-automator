@@ -31,13 +31,18 @@ from Helpers.image3d.models import NETWORKS as NETWORKS_3D, BY_KEY as NETWORKS_3
 from Helpers.image3d.volumes import SHAPES as VOLUME_SHAPES, CROPS as VOLUME_CROPS, SINGLE as SINGLE_SERIES
 from Helpers.forecasting import data as forecast_data
 from Helpers.forecasting.models import MODELS as FORECAST_MODELS
+from Helpers.clustering import data as clustering_data
+from Helpers.clustering.models import ALGORITHMS as CLUSTERING_ALGORITHMS, FAMILIES as CLUSTERING_FAMILIES
+from Helpers.clustering.metrics import INTERNAL as CLUSTER_INTERNAL, EXTERNAL as CLUSTER_EXTERNAL, \
+    COUNTS as CLUSTER_COUNTS, STABILITY as CLUSTER_STABILITY, LOWER_IS_BETTER as CLUSTER_LOWER
 from Helpers.detection import dataset as detection_dataset
 from Helpers.segmentation import data as segmentation_data
 from Helpers.segmentation.models import NETWORKS as SEG_NETWORKS, BY_KEY as SEG_BY_KEY
 from Helpers.detection.models import DETECTORS, BY_KEY as DETECTORS_BY_KEY
 from Helpers.detection.metrics import MAIN_IOU
 from web.catalog import AUTOMATORS, MODELS, THRESHOLD_METRICS, get_automator
-from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES, DETECTION_PHASES, SEGMENTATION_PHASES
+from web.jobs import PipelineJob, PHASES, IMAGE_PHASES, FORECAST_PHASES, DETECTION_PHASES, SEGMENTATION_PHASES, \
+    CLUSTERING_PHASES
 
 # Set in the Docker image by the release CI (same as the image and release tags)
 APP_VERSION = os.environ.get("SIMPLATAB_VERSION", "dev")
@@ -71,6 +76,9 @@ SEGMENTATION_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_segmenta
 # Forecasting automator: Train.csv, Test.csv, their summary and the run parameters
 FORECAST_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_forecasting')
 FORECAST_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "time-series-forecasting")
+# Clustering automator: Train.csv, the optional Test.csv, their summary and the run parameters
+CLUSTERING_INPUT_FOLDER = os.path.join(tempfile.gettempdir(), 'ml_app_clustering')
+CLUSTERING_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "clustering")
 
 # Configure upload settings
 ALLOWED_EXTENSIONS = {'csv'}
@@ -949,6 +957,158 @@ def forecasting_parameters():
 
 
 # ---------------------------------------------------------------------------
+# Clustering automator: upload -> parameters -> run -> results
+# ---------------------------------------------------------------------------
+
+def clustering_summary():
+    path = os.path.join(CLUSTERING_INPUT_FOLDER, "summary.json")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
+
+
+@app.route('/clustering')
+def clustering():
+    return render_template('clustering/upload.html', automator=get_automator("clustering"))
+
+
+@app.route('/clustering/example/<name>')
+def clustering_example(name):
+    if name not in ("Train.csv", "Test.csv"):
+        abort(404)
+    return send_from_directory(CLUSTERING_EXAMPLE_FOLDER, name, as_attachment=True)
+
+
+@app.route('/clustering/upload', methods=['POST'])
+def clustering_upload():
+    if job.running:
+        flash('A pipeline is already running. Wait for it to finish before uploading new data.', 'warning')
+        return redirect(url_for('run'))
+    if (request.content_length or 0) > TABULAR_MAX_BYTES:
+        flash('The files are too large: at most 50 MB per upload.', 'danger')
+        return redirect(url_for('clustering'))
+    train, test = request.files.get('train_file'), request.files.get('test_file')
+    if not (train and train.filename):
+        flash('Add Train.csv.', 'danger')
+        return redirect(url_for('clustering'))
+    uploads = [("Train.csv", train)] + ([("Test.csv", test)] if test and test.filename else [])
+    if not all(allowed_file(f.filename) for _, f in uploads):
+        flash('Invalid file type. Only CSV files are allowed.', 'danger')
+        return redirect(url_for('clustering'))
+    shutil.rmtree(CLUSTERING_INPUT_FOLDER, ignore_errors=True)
+    os.makedirs(CLUSTERING_INPUT_FOLDER)
+    for name, upload in uploads:
+        upload.save(os.path.join(CLUSTERING_INPUT_FOLDER, name))
+    test_path = os.path.join(CLUSTERING_INPUT_FOLDER, "Test.csv")
+    summary = clustering_data.summarize(os.path.join(CLUSTERING_INPUT_FOLDER, "Train.csv"),
+                                        test_path if os.path.exists(test_path) else None)
+    if summary["errors"]:
+        shutil.rmtree(CLUSTERING_INPUT_FOLDER, ignore_errors=True)
+        flash(" ".join(summary["errors"]), 'danger')
+        return redirect(url_for('clustering'))
+    with open(os.path.join(CLUSTERING_INPUT_FOLDER, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    return redirect(url_for('clustering_parameters'))
+
+
+def clustering_params_from_form(form, summary):
+    selected = [a.key for a in CLUSTERING_ALGORITHMS if form.get(a.key) == 'true']
+    if not selected:
+        raise ValueError('Select at least one algorithm.')
+    max_k = summary["max_k"]
+    mode = form.get('n_clusters_mode', 'classes' if summary["has_labels"] else 'auto')
+    if mode == 'fixed':
+        n_clusters = _bounded(form, 'n_clusters', int, 2, max_k, min(3, max_k))
+    elif mode == 'classes' and summary["has_labels"] and len(summary["classes"]) >= 2:
+        n_clusters = 'classes'
+    else:
+        n_clusters = 'auto'
+    k_min = _bounded(form, 'k_min', int, 2, max_k, 2)
+    k_max = _bounded(form, 'k_max', int, k_min, max_k, max(k_min, min(10, max_k)))
+    metrics = CLUSTER_INTERNAL + (CLUSTER_EXTERNAL + [CLUSTER_STABILITY] if summary["has_labels"] else [CLUSTER_STABILITY])
+    metric = form.get('selection_metric') or ('ARI' if summary["has_labels"] else 'Silhouette')
+    if metric not in metrics:
+        raise ValueError(f'The selection metric must be one of {", ".join(metrics)}.')
+    validation = form.get('validation', 'kfold')
+    if validation not in ('kfold', 'none'):
+        raise ValueError('Invalid validation.')
+    if metric == CLUSTER_STABILITY and validation == 'none':
+        raise ValueError('Stability needs the K-fold validation.')
+    scaling = form.get('scaling', 'standard')
+    if scaling not in clustering_data.SCALERS:
+        raise ValueError('Invalid scaling.')
+    criterion = form.get('k_criterion', 'silhouette')
+    if criterion not in ('silhouette', 'calinski_harabasz', 'davies_bouldin'):
+        raise ValueError('Invalid criterion.')
+    features = summary["features"]
+    ignored = [c for i, c in enumerate(features) if form.get(f'ignore_{i}') == 'true']
+    if len(ignored) == len(features):
+        raise ValueError('Keep at least one feature.')
+    return {
+        "models": selected,
+        "n_clusters": n_clusters,
+        "k_min": k_min,
+        "k_max": k_max,
+        "k_criterion": criterion,
+        "validation": validation,
+        "k_folds": _bounded(form, 'k_folds', int, 2, summary["max_folds"], min(5, summary["max_folds"])),
+        "selection_metric": metric,
+        "scaling": scaling,
+        "reduction": 'pca' if form.get('reduction') == 'pca' else 'none',
+        "pca_variance": _bounded(form, 'pca_variance', float, 0.5, 0.99, 0.95),
+        "ignore_columns": ignored,
+        "pretrain_epochs": _bounded(form, 'pretrain_epochs', int, 10, 1000, 100),
+        "epochs": _bounded(form, 'epochs', int, 10, 1000, 100),
+        "latent_dim": _bounded(form, 'latent_dim', int, 2, 64, 10),
+        "explain": form.get('explain') == 'true',
+        "tsne": form.get('tsne') == 'true',
+        "seed": 42,
+    }
+
+
+@app.route('/clustering/parameters', methods=['GET', 'POST'])
+def clustering_parameters():
+    if job.running:
+        return redirect(url_for('run'))
+    summary = clustering_summary()
+    if summary is None:
+        flash('Upload Train.csv first.', 'warning')
+        return redirect(url_for('clustering'))
+
+    if request.method == 'POST':
+        try:
+            params = clustering_params_from_form(request.form, summary)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(url_for('clustering_parameters'))
+        with open(os.path.join(CLUSTERING_INPUT_FOLDER, "params.json"), "w") as f:
+            json.dump(params, f, indent=2)
+        clear_materials()
+        from Helpers.clustering.pipeline import run_clustering_pipeline
+        names = [a.name for a in CLUSTERING_ALGORITHMS if a.key in params["models"]]
+        if not job.start(lambda: run_clustering_pipeline(CLUSTERING_INPUT_FOLDER, params), names,
+                         automator="clustering", phases=CLUSTERING_PHASES, initial_phase="data"):
+            flash('A pipeline is already running.', 'warning')
+        return redirect(url_for('run'))
+
+    import torch
+    return render_template(
+        'clustering/parameters.html',
+        automator=get_automator("clustering"),
+        summary=summary,
+        previous_results=has_results(),
+        algorithms=CLUSTERING_ALGORITHMS,
+        families=CLUSTERING_FAMILIES,
+        internal=CLUSTER_INTERNAL,
+        external=CLUSTER_EXTERNAL,
+        stability=CLUSTER_STABILITY,
+        gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        cpu_count=os.cpu_count(),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 
@@ -1166,6 +1326,95 @@ def collect_forecast_results(root):
     return results
 
 
+def _cluster_table(path, columns):
+    """Rows of a clustering metrics table, with the best value of each metric marked."""
+    table = pd.read_excel(path, index_col=0)
+    columns = [c for c in columns if c in table.columns]
+    best = {}
+    for m in columns:
+        if m in CLUSTER_COUNTS or not table[m].notna().any():
+            continue
+        best[m] = table[m].min() if m in CLUSTER_LOWER else table[m].max()
+    rows = [{"model": model, "values": {m: (float(row[m]) if row[m] == row[m] else None) for m in columns},
+             "best": {m: bool(m in best and row[m] == best[m]) for m in columns}} for model, row in table.iterrows()]
+    return rows, columns
+
+
+def collect_clustering_results(root):
+    """What the results page of the clustering automator shows, read from the Materials folder."""
+    with open(os.path.join(root, "run_info.json")) as f:
+        info = json.load(f)
+    results = {"info": info, "automator": get_automator("clustering"), "train": None, "test": None, "kfold": None,
+               "columns": [], "test_columns": [], "kfold_columns": [], "best": None, "clusters": {}, "explain": {},
+               "metric_plots": [], "classes_figure": None, "models": [], "tables": [], "files": [],
+               "splits": collect_splits(root)}
+    for dirpath, _, filenames in os.walk(root):
+        for name in sorted(filenames):
+            path = os.path.join(dirpath, name)
+            results["files"].append({"path": _relative(path, root), "size": os.path.getsize(path)})
+    results["files"].sort(key=lambda f: f["path"])
+    columns = CLUSTER_COUNTS + CLUSTER_INTERNAL + CLUSTER_EXTERNAL
+    if os.path.exists(os.path.join(root, "train_results.xlsx")):
+        results["train"], results["columns"] = _cluster_table(os.path.join(root, "train_results.xlsx"), columns)
+    if os.path.exists(os.path.join(root, "test_results.xlsx")):
+        results["test"], results["test_columns"] = _cluster_table(os.path.join(root, "test_results.xlsx"), columns)
+    if info.get("validation_file") and os.path.exists(os.path.join(root, info["validation_file"])):
+        kfold = pd.read_excel(os.path.join(root, info["validation_file"]), index_col=0)
+        results["kfold_columns"] = [c for c in columns + [CLUSTER_STABILITY] if c in kfold.columns]
+        results["kfold"] = [{"model": model, "values": {m: str(row[m]) for m in results["kfold_columns"]}}
+                            for model, row in kfold.iterrows()]
+    best = info.get("best_model")
+    if best and results["train"]:
+        metric = info.get("selection_metric")
+        row = next((r for r in results["train"] if r["model"] == best), None)
+        test_row = next((r for r in results["test"] or [] if r["model"] == best), None)
+        kfold_row = next((r for r in results["kfold"] or [] if r["model"] == best), None)
+        results["best"] = {"model": best, "metric": metric, "clusters": info.get("clusters", {}).get(best),
+                           "train": row["values"] if row else {}, "test": test_row["values"] if test_row else None,
+                           "kfold": kfold_row["values"] if kfold_row else None}
+    for name, title in (("train_metrics.png", "Clustering of Train.csv"), ("test_metrics.png", "Test.csv samples assigned to the clusters"),
+                        ("k_selection.png", "Choice of the number of clusters")):
+        item = _figure(os.path.join(root, "Metrics_Plots", name), root, title)
+        if item:
+            results["metric_plots"].append(item)
+    results["classes_figure"] = _figure(os.path.join(root, "Embeddings", "Target_classes.png"), root,
+                                        "Train.csv samples coloured by Target class")
+    order = [r["model"] for r in results["train"] or []]
+    for model in order:
+        safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in model)
+        figures = [_figure(os.path.join(root, "Embeddings", f"{safe}_clusters.png"), root, f"{model}: clusters in 2D projections"),
+                   _figure(os.path.join(root, "Cluster_Profiles", f"{safe}_profile.png"), root, f"{model}: cluster profiles"),
+                   _figure(os.path.join(root, "Metrics_Plots", f"{safe}_contingency.png"), root, f"{model}: clusters vs. Target classes"),
+                   _figure(os.path.join(root, "Metrics_Plots", f"{safe}_silhouette.png"), root, f"{model}: silhouette of the samples")]
+        profile_path = os.path.join(root, "Cluster_Profiles", f"{safe}_profile.csv")
+        if any(figures):
+            results["clusters"][model] = {"figures": [f for f in figures if f],
+                                          "profile": _relative(profile_path, root) if os.path.exists(profile_path) else None,
+                                          "setting": (info.get("models", {}).get(model) or {}).get("setting")}
+        item = _figure(os.path.join(root, "Explainability", f"{safe}_shap.png"), root, f"{model}: SHAP")
+        if item:
+            importance = os.path.join(root, "Explainability", f"{safe}_feature_importance.csv")
+            item["importance"] = pd.read_csv(importance)[["feature", "total"]].head(6).to_dict("records") \
+                if os.path.exists(importance) else []
+            item["fidelity"] = (info.get("models", {}).get(model) or {}).get("surrogate_accuracy")
+            results["explain"][model] = item
+        path = os.path.join(root, "Models", f"{safe}.pkl")
+        if os.path.exists(path):
+            results["models"].append({"path": _relative(path, root), "name": model, "file": f"{safe}.pkl",
+                                      "size": os.path.getsize(path),
+                                      "requirements": (info.get("models", {}).get(model) or {}).get("requirements", [])})
+    for name, title, description in (
+            ("train_clusters.csv", "Clusters of Train.csv", "The cluster of every Train.csv sample for each algorithm (-1: noise)."),
+            ("test_clusters.csv", "Clusters of Test.csv", "The cluster each model assigns to every Test.csv sample."),
+            ("validation_folds.csv", "Validation folds", "The metrics of every algorithm on each held-out fold."),
+            ("k_selection.csv", "Number of clusters", "The criterion for each number of clusters tried.")):
+        path = os.path.join(root, "Clusters", name)
+        if os.path.exists(path):
+            results["tables"].append({"path": _relative(path, root), "name": title, "description": description,
+                                      "size": os.path.getsize(path)})
+    return results
+
+
 def collect_detection_results(root):
     """What the results page of the detection automator shows, read from the Materials folder."""
     with open(os.path.join(root, "run_info.json")) as f:
@@ -1323,6 +1572,9 @@ def results():
         return render_template('detection/results.html', results=collect_detection_results(root))
     if _run_automator(root) == "image-segmentation":
         return render_template('segmentation/results.html', results=collect_segmentation_results(root))
+    if _run_automator(root) == "clustering":
+        return render_template('clustering/results.html', results=collect_clustering_results(root),
+                               lower=CLUSTER_LOWER)
     if _run_automator(root) == "time-series-forecasting":
         return render_template('forecasting/results.html', results=collect_forecast_results(root),
                                metrics=FORECAST_METRICS)

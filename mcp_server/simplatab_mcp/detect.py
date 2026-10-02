@@ -61,9 +61,13 @@ def _csv(path):
     columns = list(frame.columns)
     ids = [c for c in ("ID", "patient_id") if c in columns]
     evidence = {"columns": columns[:50], "rows_read": len(frame)}
+    features = len(columns) - len(ids) - (1 if "Target" in columns else 0)
     if "Target" not in columns:
-        return [], evidence, ["No Target column: tabular classification and forecasting both need one (the label, or the "
-                              "value to forecast)."]
+        if features < 1:
+            return [], evidence, ["No feature column: clustering needs at least one column besides ID."]
+        return [{"automator": "clustering", "confidence": "high",
+                 "reason": f"no Target column: unsupervised clustering of the rows ({features} feature columns)"}], evidence, \
+            ["Tabular classification and forecasting need a Target column (the label, or the value to forecast)."]
     candidates = []
     if "Time" in columns and ids:
         repeated = frame[ids[0]].duplicated().any()
@@ -74,11 +78,23 @@ def _csv(path):
     integer_classes = pd.api.types.is_numeric_dtype(target) and (target.dropna() % 1 == 0).all() and target.nunique() <= 50
     if integer_classes and not candidates:
         candidates.append({"automator": "tabular", "confidence": "high",
-                           "reason": f"a Target column with {target.nunique()} classes and {len(columns) - 1 - len(ids)} feature columns"})
+                           "reason": f"a Target column with {target.nunique()} classes and {features} feature columns"})
     elif integer_classes:
         candidates.append({"automator": "tabular", "confidence": "low",
                            "reason": "also possible: each row classified on its own (Time would then be a feature)"})
-    notes = [] if candidates else ["Target is not made of class numbers 0..K-1 and there is no ID/Time series layout."]
+    text_classes = not pd.api.types.is_numeric_dtype(target) and target.nunique() <= 50
+    if not candidates and text_classes:
+        candidates.append({"automator": "clustering", "confidence": "medium",
+                           "reason": f"a Target of {target.nunique()} text classes: clustering evaluated against them "
+                                     "(tabular classification needs classes numbered 0..K-1)"})
+    elif integer_classes or text_classes:
+        candidates.append({"automator": "clustering", "confidence": "low",
+                           "reason": "also possible: clustering the rows, the clusters evaluated against Target"})
+    elif not candidates:
+        candidates.append({"automator": "clustering", "confidence": "low",
+                           "reason": "Target holds continuous values (left out by clustering)"})
+    notes = [] if candidates[0]["confidence"] in ("high", "medium") else \
+        ["Target is not made of class numbers 0..K-1 and there is no ID/Time series layout."]
     return candidates, evidence, notes
 
 
@@ -167,6 +183,6 @@ def inspect(train):
         evidence["format"] = "zip" if path.is_file() else "folder"
     else:
         candidates, evidence, notes = [], {"format": path.suffix or "unknown"}, [
-            "Give a CSV file (tabular, forecasting), or a zip file or folder (image automators)."]
+            "Give a CSV file (tabular, forecasting, clustering), or a zip file or folder (image automators)."]
     suggested = candidates[0]["automator"] if candidates and candidates[0]["confidence"] in ("high", "medium") else None
     return {"path": str(path), "suggested_automator": suggested, "candidates": candidates, "evidence": evidence, "notes": notes}

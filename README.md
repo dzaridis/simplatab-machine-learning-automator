@@ -11,9 +11,11 @@ explains their predictions and gives you the trained models. Your data never lea
 | **3D Image Classification** (same automator) | `Train.zip`, `Test.zip` of studies with one or more series (DICOM series, NIfTI), e.g. T2 + ADC + DWI | 18 3D networks. Pretrained: MedicalNet ResNet-10/18/50, R3D-18, R(2+1)D-18, MC3-18, Video Swin-T, SwinUNETR Swin-ViT (self-supervised on CT), DINOv2-Small 2.5D. From scratch: MedNeXt-S, ConvNeXt V2 3D, 3D UX-Net, nnU-Net ResEnc-M, SwinUNETR-V2, ViT-Small 3D (UNETR), SEResNeXt-50 3D, EfficientNet-B0 3D, DenseNet-121 3D | 3D Grad-CAM |
 | **Time Series Forecasting** | `Train.csv`, `Test.csv` in long format (e.g. repeated measurements of patients), with static, past and future covariates | 10 [neuralforecast](https://github.com/Nixtla/neuralforecast) networks: NHITS, NBEATSx, TiDE, KAN, DLinear, TFT, PatchTST, BiTCN, TCN, TimesNet | Integrated gradients |
 | **Object Detection** | `Train.zip`, `Test.zip` of 2D images or 3D volumes (DICOM, NIfTI, PNG, JPEG, …) with boxes in COCO, YOLO, Pascal VOC, CSV or mask format | 10 pretrained detectors: Faster R-CNN v2, RetinaNet v2, FCOS, Faster R-CNN MobileNetV3, SSDLite (torchvision); RT-DETR, RT-DETRv2, D-FINE-M, Deformable DETR, Conditional DETR (transformers) | D-RISE |
+| **Clustering** | `Train.csv` (and an optional `Test.csv`), with or without a `Target` column of class labels to check the clusters against | 12 classical (K-Means, Bisecting K-Means, Gaussian mixture, Dirichlet-process Bayesian mixture, Ward agglomerative, BIRCH, spectral clustering, affinity propagation, DBSCAN, HDBSCAN, OPTICS, Mean Shift) and 6 deep learning and neural (DEC, IDEC, DCN, VaDE, SCARF + k-means, self-organising map) | Cluster profiles, PCA/t-SNE maps, SHAP |
 | **Image Segmentation** | `Train.zip`, `Test.zip` of images and masks: 2D medical or everyday images (PNG, JPEG, DICOM, NIfTI, …), 3D volumes with one or more series (DICOM, NIfTI), or the nnU-Net raw format | 2D: the official **nnU-Net v2**, U-Net ResNet-34, U-Net++ EfficientNet-B4, DeepLabV3+ ResNet-50, FPN and UPerNet ConvNeXt-Tiny, SegFormer-B2, MA-Net ResNet-50 (pretrained), Attention U-Net, U-Net (nnU-Net-like). 3D: **nnU-Net v2** 3D full resolution, SwinUNETR (self-supervised on CT), SwinUNETR-V2, SegResNet, DynUNet, UNETR, MedNeXt-S, Attention U-Net, U-Net++, V-Net | Uncertainty maps (test-time augmentation) |
 
-Classification: binary and multiclass problems. Segmentation: up to 32 classes.
+Classification: binary and multiclass problems. Segmentation: up to 32 classes. Clustering: supervised evaluation
+(with labels) or unsupervised clustering (without).
 
 ## Three ways to run it
 
@@ -84,6 +86,14 @@ are forecast one after the other, each by a network trained on the points before
 lookback, learning rate and size on these windows). The final networks, trained on all the training series,
 forecast the last H points of every test series.
 
+Clustering has no training labels: every algorithm clusters Train.csv, its number of clusters given, set to the
+number of `Target` classes or chosen in a range by the silhouette (or Calinski-Harabasz, Davies-Bouldin); the
+algorithms that find it themselves (density-based, affinity propagation, Bayesian mixture) have their settings tuned
+by the same criterion. **K-fold validation** then refits each algorithm on K-1 folds and assigns the held-out samples:
+they are scored, and compared with the clusters found on all of Train.csv (**stability**). The final models assign
+the Test.csv samples (optional). With a `Target`, the clusters are compared with the classes (ARI, AMI, NMI,
+V-measure, purity, matched accuracy); the labels are never used to find the clusters.
+
 For 3D studies, the folds are also **grouped by patient**: all the studies of a patient stay in the same fold.
 
 Object detection offers **K-fold cross-validation** (folds grouped by patient folder, early stopping on a part of
@@ -141,6 +151,17 @@ also be classified in 2D, one image per file). Layout: `<class>/<patient>/<study
 - Example data: [`Examples/time-series-forecasting`](Examples/time-series-forecasting) (daily glucose of 40 patients),
   also downloadable from the upload page.
 
+**Clustering**: one CSV file, `Train.csv`, one row per sample, and optionally a `Test.csv` with the same feature columns.
+- `ID` (or `patient_id`): optional identifier, never a feature. `Target`: optional class labels (numbers or text).
+  With it, the clusters are evaluated against the classes (supervised evaluation) and the number of clusters can be
+  set to the number of classes; without it, the clustering is unsupervised (internal metrics).
+- Every other column is a feature: numeric or categorical (one-hot encoded). Missing values are imputed; constant,
+  mostly missing or identifier-like text columns are left out. Scaling (standard, robust, min-max) and an optional
+  PCA are chosen on the configuration page, where columns can also be left out.
+- Up to 100,000 rows; the quadratic algorithms are limited (spectral 10,000, affinity propagation 5,000 rows...).
+- Example data: [`Examples/clustering`](Examples/clustering) (five subgroups of adult-onset diabetes, after Ahlqvist
+  et al. 2018), also downloadable from the upload page.
+
 **Object detection**: two zip files (up to 5 GB each) with the images and their boxes in one of these formats
 (detected automatically; boxes in pixels of the original image):
 
@@ -184,12 +205,13 @@ Everything is written to the `Materials` folder, shown on the results page and d
 
 | Output | Files |
 |---|---|
-| Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline; detection: mAP, AP at IoU 0.5/0.75 (3D: 0.1/0.25/0.5), recall, FROC, precision/recall/F1 and image-level sensitivity/specificity at the threshold; segmentation: Dice, IoU, HD95, ASSD, sensitivity, precision) | `<K>_fold_results.xlsx` (mean ± SD) or `holdout_results.xlsx`, `test_results.xlsx`, `Metrics_Plots/` (forecasting) |
+| Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline; detection: mAP, AP at IoU 0.5/0.75 (3D: 0.1/0.25/0.5), recall, FROC, precision/recall/F1 and image-level sensitivity/specificity at the threshold; segmentation: Dice, IoU, HD95, ASSD, sensitivity, precision; clustering: silhouette, Calinski-Harabasz, Davies-Bouldin, stability and, with labels, ARI, AMI, NMI, V-measure, homogeneity, completeness, FMI, purity, matched accuracy) | `<K>_fold_results.xlsx` (mean ± SD) or `holdout_results.xlsx`, `test_results.xlsx`, `train_results.xlsx` (clustering), `Metrics_Plots/` (forecasting, clustering) |
 | Validation splits: the samples of every fold (to reproduce the validation) | `Splits/splits.csv`, `Splits/splits.json` |
 | Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/`, `Detection_Curves/` (precision-recall, FROC, AP per class), `Segmentation_Plots/` |
-| Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images; 3D: the slices where the map is strongest), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps) |
-| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors, segmentation networks), `Models/<model>.zip` (forecasting, transformers detectors, nnU-Net model folders) |
+| Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images; 3D: the slices where the map is strongest), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps; clustering: SHAP of a random forest that recognises the clusters) |
+| Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors, segmentation networks), `Models/<model>.zip` (forecasting, transformers detectors, nnU-Net model folders), `Models/<algorithm>.pkl` (clustering) |
 | Forecasts vs. observed values | `Forecasts/test_forecasts.csv`, `Forecasts/future_forecasts.csv` (beyond the data, without future covariates), `Forecast_Plots/` |
+| Clusters (clustering) | `Clusters/train_clusters.csv`, `test_clusters.csv` (cluster of every sample per algorithm; 0 the largest, -1 noise), `Cluster_Profiles/` (feature means per cluster), `Embeddings/` (PCA and t-SNE maps), `Metrics_Plots/` (clusters vs. classes, silhouettes, choice of k) |
 | Image predictions and classes | `Predictions/<network>_test_predictions.csv` (one row per image or 3D study), `classes.csv` |
 | Detections drawn on test images (true positives, false positives, missed boxes) | `Detections/` |
 | Predicted test masks (original mask values; 3D: NIfTI on the grid of the first series), metrics per class and case, overlays with the uncertainty map (worst, median and best test cases) | `Predictions/<network>/`, `Segmentation_Metrics/`, `Overlays/<network>/` |
@@ -202,7 +224,7 @@ Every run writes the samples of each fold to `Materials/Splits/`, so that the va
 (and is shown in the Downloads tab of the results page):
 - `splits.csv`: one row per sample and fold: `fold`, `set` (`train`, `validation`, and `early_stopping` where a part
   of the training fold stops the training early) and `id`, plus `patient` (the group kept in one fold), `class`,
-  `row` (the line of Train.csv, tabular) or the `start`/`end` times of each series (forecasting windows);
+  `row` (the line of Train.csv, tabular and clustering) or the `start`/`end` times of each series (forecasting windows);
 - `splits.json`: the ids of every fold, with a description of how the folds were made (seeds included).
 
 `id` is what identifies a sample in your data: the `ID` (or `patient_id`) column of Train.csv, the image, study or
@@ -285,6 +307,20 @@ print(nf.predict(df=history))   # the next H points of every series
 With covariates, the code of the results page also encodes them as in training and passes the static features
 (`static_df`) and the covariates known in advance for the forecast period (`futr_df`).
 
+**Clustering**: each `.pkl` file holds the preprocessing fitted on Train.csv and the clustering model (stored with
+cloudpickle); `predict` gives the cluster of new rows, numbered as in `Clusters/train_clusters.csv`.
+```bash
+pip install numpy==1.23.5 pandas==2.0.3 scikit-learn==1.3.1 cloudpickle==3.1.2   # + torch==2.8.0 for DEC, IDEC, DCN, VaDE, SCARF
+```
+```python
+import pickle
+import pandas as pd
+
+model = pickle.load(open("Materials/Models/K-Means.pkl", "rb"))
+data = pd.read_csv("new_samples.csv", index_col="ID")   # the columns of Train.csv; Target not needed
+print(model.predict(data))   # model.predict_proba(data): memberships (mixtures, deep networks)
+```
+
 **Object detection**: torchvision detectors are TorchScript `.pt` files; transformers detectors are `.zip` folders
 for `from_pretrained` (transformers 4.57.6). Both carry `simplatab.json` (classes, image size, score threshold).
 ```bash
@@ -339,6 +375,10 @@ maps them back to your mask values and aligns the series as in training.
 
 - **Forecasting networks** are trained from scratch on your series (no pretrained weights). On CPU most take
   seconds to a minute per training; TimesNet is much slower without a GPU and is not selected by default.
+- **Deep clustering networks** (DEC, IDEC, DCN, VaDE, SCARF) are MLPs trained from scratch on your table: an
+  autoencoder (contrastive encoder for SCARF) is pretrained, then refined to cluster; with an automatic number of
+  clusters, k is chosen on the pretrained embedding. They take seconds to a minute on CPU for a few thousand rows.
+  The self-organising map (MiniSom) is a numpy model.
 - **TabPFNv2 and TabICL** are pretrained foundation models (no training); TabPFNv2 is limited to 10,000 samples,
   500 features and 10 classes. **TabTransformer** and **TabR** are trained with early stopping.
 - **3D networks**: MedicalNet ResNets are pretrained on 23 CT and MRI datasets, the video networks on Kinetics-400
@@ -389,12 +429,12 @@ python -m unittest discover tests
 ```
 Code layout: `app.py` (web app), `Helpers/` (tabular pipeline; `splits.py`: the validation splits of every automator), `Helpers/image/` (image pipeline),
 `Helpers/image3d/` (3D image pipeline),
-`Helpers/forecasting/` (forecasting pipeline), `Helpers/detection/` (object detection pipeline),
+`Helpers/forecasting/` (forecasting pipeline), `Helpers/clustering/` (clustering pipeline), `Helpers/detection/` (object detection pipeline),
 `Helpers/segmentation/` (segmentation pipeline; `nnunet_runner.py` runs nnU-Net in a separate process), `web/`
 (automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning),
 `mcp_server/` (MCP server, its Dockerfile and tests).
 `Examples/` holds the outputs of example runs on the Iris and breast cancer datasets, the example time series and
-the example detection, 3D and segmentation data. Set `SIMPLATAB_PRETRAINED=0` to run the detection, 3D and segmentation automators without downloading weights
+the example detection, 3D, segmentation and clustering data. Set `SIMPLATAB_PRETRAINED=0` to run the detection, 3D and segmentation automators without downloading weights
 (randomly initialised networks, e.g. for tests).
 
 ## Authors

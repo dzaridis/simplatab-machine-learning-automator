@@ -184,6 +184,38 @@ AUTOMATORS = [
             "Integrated gradients figures and trained models ready to reuse",
         ],
     ),
+    Automator(
+        slug="clustering",
+        name="Clustering",
+        tagline="Find groups in tabular data, with or without labels to check them against",
+        description=(
+            "Cluster the rows of a table with twelve classical algorithms (k-means to HDBSCAN) and six deep and "
+            "neural ones (DEC, IDEC, DCN, VaDE, SCARF, self-organising maps), validate them across folds and "
+            "explain what defines each cluster. With class labels, the clusters are also checked against them."
+        ),
+        icon="intersect",
+        status="available",
+        endpoint="clustering",
+        inputs=[
+            "Train.csv (and an optional Test.csv) with one row per sample",
+            "Numeric and categorical features; missing values are imputed",
+            "Optional Target column of class labels, only used to evaluate the clusters",
+        ],
+        steps=[
+            "Imputation, scaling, one-hot encoding and optional PCA",
+            "Number of clusters given, set to the number of classes, or chosen by silhouette, Calinski-Harabasz or Davies-Bouldin",
+            "Centroid, mixture, hierarchical, graph and density-based algorithms; DEC, IDEC, DCN, VaDE, SCARF and SOM",
+            "K-fold validation: held-out samples assigned by models fitted on the other folds, stability across folds",
+            "Test.csv samples assigned to the clusters of the final models",
+            "Cluster profiles, 2D projections (PCA, t-SNE) and SHAP explanations of the clusters",
+        ],
+        outputs=[
+            "Internal metrics (silhouette, Calinski-Harabasz, Davies-Bouldin) and, with labels, ARI, AMI, NMI, "
+            "V-measure, purity and matched accuracy",
+            "Cluster of every sample (CSV), profiles, projections, clusters vs. classes, silhouette plots",
+            "Trained models that assign new samples to the clusters (.pkl)",
+        ],
+    ),
 ]
 
 

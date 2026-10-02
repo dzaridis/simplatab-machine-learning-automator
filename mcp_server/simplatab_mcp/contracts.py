@@ -52,6 +52,18 @@ AUTOMATORS = {
         "validation": "Rolling-origin (prequential) validation",
         "explanations": "Integrated gradients",
     },
+    "clustering": {
+        "name": "Clustering",
+        "task": "Finding groups of similar rows in a table, unsupervised; with a Target column of classes the clusters "
+                "are also evaluated against them (supervised evaluation; the labels are never used to fit).",
+        "train": "Train.csv: a CSV file, one row per sample",
+        "test": "Optional Test.csv with the same feature columns (its samples are assigned to the clusters)",
+        "model_summary": "12 classical (K-Means, Bisecting K-Means, Gaussian mixture, Bayesian GMM, Ward, BIRCH, spectral, "
+                         "affinity propagation, DBSCAN, HDBSCAN, OPTICS, Mean Shift) and 6 deep/neural (DEC, IDEC, DCN, "
+                         "VaDE, SCARF + k-means, self-organizing map)",
+        "validation": "K-fold: held-out samples assigned by models fitted on the other folds; stability across folds",
+        "explanations": "Cluster profiles, PCA/t-SNE projections, SHAP of a surrogate random forest",
+    },
 }
 
 THRESHOLD_METRICS = ["Balanced Accuracy", "AUC", "F-score", "Accuracy", "Sensitivity", "Specificity"]
@@ -164,6 +176,27 @@ DATA_RULES = {
         ],
         "example": "ID,Time,Target,Dose,Sex\nP01,2024-01-01,5.4,10,F\nP01,2024-01-02,5.9,10,F\n",
     },
+    "clustering": {
+        "layout": "One CSV file (Train.csv) with one row per sample, and optionally a Test.csv with the same feature "
+                  "columns. Give test=null (or leave it out) when there is no test set.",
+        "columns": {
+            "ID or patient_id": "Optional identifier (never a feature; reported in the cluster tables and the splits).",
+            "Target": "Optional class labels (numbers or text). Present: supervised evaluation (ARI, AMI, NMI, purity, "
+                      "matched accuracy...) and n_clusters can be the number of classes. Absent: unsupervised clustering. "
+                      "The labels never influence the clusters. A Target of continuous values is left out.",
+            "other columns": "Features: numeric or categorical (text, one-hot encoded). Missing values are imputed "
+                             "(median, or a 'missing' category). Constant, mostly missing (>50%) or identifier-like text "
+                             "columns are left out; ignore_columns leaves out others.",
+        },
+        "rules": [
+            "At least 10 rows and at most 100,000.",
+            "Test.csv (optional) has every feature column of Train.csv; its Target (optional) evaluates its clusters.",
+            "Some algorithms are limited in rows: agglomerative 20,000, spectral 10,000, affinity propagation 5,000, "
+            "OPTICS and Mean Shift 20,000, DBSCAN and HDBSCAN 50,000.",
+            "Cluster numbers: 0 is the largest cluster of Train.csv; -1 is noise (DBSCAN, HDBSCAN, OPTICS).",
+        ],
+        "example": "ID,Age,BMI,HbA1c,GADA,Target\nP0001,51,34.4,54,Negative,MOD\nP0002,72,30.7,77,Negative,SIDD\n",
+    },
 }
 
 OUTPUTS = {
@@ -185,6 +218,12 @@ OUTPUTS = {
                            "Segmentation_Plots/, Overlays/<network>/ (with the uncertainty map)"],
     "time-series-forecasting": ["Models/<model>.zip (neuralforecast)", "Forecasts/test_forecasts.csv, future_forecasts.csv",
                                 "Forecast_Plots/, Metrics_Plots/, Explainability/ (integrated gradients)"],
+    "clustering": ["train_results.xlsx: metrics of the clusters of Train.csv (test_results.xlsx with a Test.csv)",
+                   "Models/<algorithm>.pkl (cloudpickle: model.predict(dataframe) -> cluster; no Simplatab needed)",
+                   "Clusters/train_clusters.csv, test_clusters.csv (cluster of every sample per algorithm), "
+                   "validation_folds.csv, k_selection.csv",
+                   "Cluster_Profiles/<algorithm>_profile.csv|png, Embeddings/ (PCA, t-SNE), "
+                   "Metrics_Plots/ (contingency, silhouette, k selection), Explainability/ (SHAP)"],
 }
 
 METRICS = {
@@ -194,6 +233,9 @@ METRICS = {
                          "image-level sensitivity/specificity"],
     "image-segmentation": ["Dice", "IoU", "HD95 (lower is better)", "ASSD (lower is better)", "Sensitivity", "Precision"],
     "time-series-forecasting": ["MAE", "RMSE", "sMAPE", "MASE (all lower is better; vs. a seasonal naive baseline)"],
+    "clustering": ["Silhouette", "Calinski-Harabasz", "Davies-Bouldin (lower is better)", "with a Target: ARI, AMI, NMI, "
+                   "V-measure, Homogeneity, Completeness, FMI, Purity, Accuracy (Hungarian matching)",
+                   "Stability (ARI) on the validation folds", "Clusters, Noise %"],
 }
 
 
@@ -227,6 +269,11 @@ def models(automator, dim=None):
         from Helpers.forecasting.models import MODELS
         return [{"key": m.key, "name": m.key, "description": m.description, "default": m.default, "slow": m.slow}
                 for m in MODELS]
+    if automator == "clustering":
+        from Helpers.clustering.models import ALGORITHMS
+        return [{"key": a.key, "name": a.name, "description": a.description, "default": a.default, "family": a.family,
+                 "takes_n_clusters": a.uses_k, "leaves_noise": a.noise, "max_rows": a.max_samples, "slow": a.slow}
+                for a in ALGORITHMS]
     raise KeyError(automator)
 
 
@@ -337,6 +384,36 @@ def config_schema(automator, dim=None):
             "season": _field("int", "from the data", "Seasonal period (seasonal naive baseline, MASE).", min=1, max=1000),
             "future_columns": _field("list[str]", [], "Varying covariates known in advance (the others are past covariates)."),
         }
+    if automator == "clustering":
+        return {
+            "models": _field("list[str]", "from the registry defaults", "Algorithm keys (see models), or [\"all\"]."),
+            "n_clusters": _field("int|str", "\"classes\" with a Target, else \"auto\"",
+                                 "For the algorithms that take k: an integer, \"classes\" (number of Target classes) or "
+                                 "\"auto\" (every k from k_min to k_max tried, the best by k_criterion kept). The other "
+                                 "algorithms find it themselves (their settings tuned by k_criterion)."),
+            "k_min": _field("int", 2, "Smallest k tried (auto).", min=2, max="from the data"),
+            "k_max": _field("int", 10, "Largest k tried (auto).", min=2, max="from the data (max_k)"),
+            "k_criterion": _field("str", "silhouette", "Criterion choosing k and the settings of the self-sizing algorithms.",
+                                  choices=["silhouette", "calinski_harabasz", "davies_bouldin"]),
+            "validation": _field("str", "kfold", "kfold (refit on K-1 folds, held-out fold assigned) or none.",
+                                 choices=["kfold", "none"]),
+            "k_folds": _field("int", 5, "Folds (stratified by Target when present).", min=2, max="from the data (max_folds)"),
+            "selection_metric": _field("str", "\"ARI\" with a Target, else \"Silhouette\"",
+                                       "Metric choosing the best algorithm (validation mean, else test, else train).",
+                                       choices=["Silhouette", "Calinski-Harabasz", "Davies-Bouldin", "Stability (ARI)",
+                                                "ARI", "AMI", "NMI", "V-measure", "Homogeneity", "Completeness", "FMI",
+                                                "Purity", "Accuracy"]),
+            "scaling": _field("str", "standard", "Scaling of the numeric features.", choices=["standard", "robust", "minmax", "none"]),
+            "reduction": _field("str", "none", "Dimensionality reduction before clustering.", choices=["none", "pca"]),
+            "pca_variance": _field("float", 0.95, "Share of the variance kept by the PCA.", min=0.5, max=0.99),
+            "ignore_columns": _field("list[str]", [], "Feature columns left out of the clustering."),
+            "pretrain_epochs": _field("int", 100, "Deep networks: autoencoder / contrastive pretraining epochs.", min=10, max=1000),
+            "epochs": _field("int", 100, "Deep networks: clustering epochs (early stop when stable).", min=10, max=1000),
+            "latent_dim": _field("int", 10, "Deep networks: latent dimensions.", min=2, max=64),
+            "explain": _field("bool", True, "SHAP explanations of the clusters (surrogate random forest)."),
+            "tsne": _field("bool", True, "t-SNE projection figures (next to PCA)."),
+            "seed": _field("int", 42, "Random seed.", min=0, max=2 ** 31 - 1),
+        }
     raise KeyError(automator)
 
 
@@ -356,6 +433,9 @@ def contract(automator, dim=None):
     else:
         entry["config"] = config_schema(automator)
         entry["models"] = models(automator)
+    if automator == "clustering":
+        entry["note"] = ("test is optional for clustering. With a Target column the run is a supervised evaluation of "
+                         "the clusters; without it, an unsupervised clustering.")
     entry["workflow"] = [
         "1. Prepare Train and Test as described in data (a zip, folder or CSV path the server can read, "
         "or upload_file).",

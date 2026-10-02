@@ -6,7 +6,7 @@ import json
 import math
 import os
 
-LOWER_IS_BETTER = {"HD95", "ASSD", "MAE", "RMSE", "sMAPE", "MASE"}
+LOWER_IS_BETTER = {"HD95", "ASSD", "MAE", "RMSE", "sMAPE", "MASE", "Davies-Bouldin"}
 
 
 def _value(v):
@@ -50,6 +50,8 @@ def collect(experiment_dir, automator):
     info = out["run_info"]
     if os.path.exists(os.path.join(root, "test_results.xlsx")):
         out["test_metrics"] = _table(os.path.join(root, "test_results.xlsx"))
+    if os.path.exists(os.path.join(root, "train_results.xlsx")):  # clustering: the clusters of Train.csv
+        out["train_metrics"] = _table(os.path.join(root, "train_results.xlsx"))
     candidates = ([os.path.join(root, info["validation_file"])] if info.get("validation_file") else []) + \
         sorted(glob.glob(os.path.join(root, "*_fold_results.xlsx"))) + [os.path.join(root, "holdout_results.xlsx")]
     for path in candidates:
@@ -59,7 +61,7 @@ def collect(experiment_dir, automator):
             break
     out["best_model"] = _best(automator, info, out["test_metrics"])
     out["metric_direction"] = {k: ("lower" if k in LOWER_IS_BETTER else "higher")
-                               for k in (out["test_metrics"][0] if out["test_metrics"] else {}) if k != "model"}
+                               for k in (out["test_metrics"] or out.get("train_metrics") or [{}])[0] if k != "model"}
     splits = os.path.join(root, "Splits", "splits.json")
     if os.path.exists(splits):
         with open(splits) as f:
