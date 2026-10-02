@@ -39,10 +39,82 @@ jobs:
         run: |
           python -m unittest discover tests -v
 
+  # The MCP server (mcp_server/): the worker tests in the Python 3.9 environment of the pipelines, then the
+  # MCP client tests with the server in Python 3.12, every automator run end to end as an agent would
+  mcp-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.9 (Simplatab pipelines)
+        id: py39
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install the Simplatab dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Set up Python 3.12 (MCP server)
+        id: py312
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the MCP SDK
+        run: ${{ steps.py312.outputs.python-path }} -m pip install -r mcp_server/requirements.txt
+
+      - name: Worker tests (contracts, configurations, data checks, automator detection)
+        working-directory: mcp_server
+        env:
+          SIMPLATAB_PRETRAINED: '0'
+        run: ${{ steps.py39.outputs.python-path }} -m unittest tests.test_worker -v
+
+      - name: MCP tests (every automator end to end)
+        working-directory: mcp_server
+        env:
+          SIMPLATAB_PRETRAINED: '0'
+          SIMPLATAB_MCP_ALL: '1'
+          SIMPLATAB_WORKER_PYTHON: ${{ steps.py39.outputs.python-path }}
+        run: ${{ steps.py312.outputs.python-path }} -m unittest tests.test_server -v
+
+  # The MCP server image as it runs on a computer: built from mcp_server/Dockerfile, started in the
+  # background (HTTP) with mounted folders and used over HTTP and over stdio (docker exec)
+  mcp-docker:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h /
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build the MCP server image (CPU)
+        run: docker build -f mcp_server/Dockerfile -t simplatab-mcp .
+
+      - name: Set up Python 3.12 (MCP client)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Smoke test of the container
+        run: |
+          python -m pip install -r mcp_server/requirements.txt
+          python mcp_server/tests/docker_smoke.py simplatab-mcp
+
   # Version of this release: the latest X.Y.Z release tag plus 0.0.1 (see ci/next_version.sh).
   # It is the tag of both the Docker image and the GitHub release, and is shown in the web interface.
   version:
-    needs: test
+    needs: [test, mcp-test, mcp-docker]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.next.outputs.version }}
