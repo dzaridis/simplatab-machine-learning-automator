@@ -63,10 +63,11 @@ AUTOMATORS = [
     Automator(
         slug="image-classification",
         name="Image Classification",
-        tagline="Deep learning classifiers for medical images",
+        tagline="Deep learning classifiers for medical images, 2D and 3D",
         description=(
             "Train, validate and explain ten state-of-the-art pretrained CNNs and vision transformers "
-            "on DICOM, NIfTI, PNG or JPEG images, with the same validation standards as the tabular automator."
+            "on DICOM, NIfTI, PNG or JPEG images, or ten 3D networks on studies made of one or more "
+            "series (e.g. T2, ADC and DWI of an MRI), with the same validation standards as the tabular automator."
         ),
         icon="images",
         status="available",
@@ -74,15 +75,17 @@ AUTOMATORS = [
         inputs=[
             "Train.zip and Test.zip with one folder per class (up to 5 GB each)",
             "DICOM (including compressed and multi-frame), NIfTI, PNG (8/16-bit), JPEG, BMP, TIFF",
+            "3D: class / patient / study / series folders, a series being DICOM slices or a NIfTI file",
             "The test set is provided by you and never used for training",
         ],
         steps=[
             "Medical image preparation: DICOM rescaling, CT windows, volume slices, 16-bit normalisation",
             "Ten pretrained networks: ResNet, EfficientNet(V2), ConvNeXt(V2), ViT, DeiT III, Swin, MaxViT, DINOv2",
+            "3D: series aligned in patient space; MedicalNet, video and SwinUNETR networks, DenseNet-3D, 2.5D DINOv2",
             "Feature extraction (fast, CPU friendly) or full fine-tuning (GPU recommended)",
-            "Stratified K-fold cross-validation with decision threshold optimisation",
+            "Stratified K-fold cross-validation (grouped by patient in 3D) with decision threshold optimisation",
             "Evaluation on the external test set",
-            "Grad-CAM heatmaps of the regions behind the predictions",
+            "Grad-CAM heatmaps of the regions behind the predictions (3D Grad-CAM for volumes)",
         ],
         outputs=[
             "K-fold and test metrics (AUC, F-score, accuracy, sensitivity, specificity, balanced accuracy)",

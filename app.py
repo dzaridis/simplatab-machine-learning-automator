@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import tempfile
+import traceback
 import zipfile
 
 # The pipeline runs in a background thread: use a non-interactive matplotlib backend
@@ -25,6 +26,9 @@ from Helpers.standalone import requirements as model_requirements
 from Helpers.image import dataset as image_dataset
 from Helpers.image.io import CT_WINDOWS
 from Helpers.image.models import BACKBONES, BY_KEY as BACKBONES_BY_KEY
+from Helpers.image3d import dataset as image3d_dataset
+from Helpers.image3d.models import NETWORKS as NETWORKS_3D, BY_KEY as NETWORKS_3D_BY_KEY
+from Helpers.image3d.volumes import SHAPES as VOLUME_SHAPES, CROPS as VOLUME_CROPS, SINGLE as SINGLE_SERIES
 from Helpers.forecasting import data as forecast_data
 from Helpers.forecasting.models import MODELS as FORECAST_MODELS
 from Helpers.detection import dataset as detection_dataset
@@ -338,6 +342,16 @@ def image():
                            max_gb=image_dataset.MAX_ZIP_BYTES // 1024 ** 3)
 
 
+IMAGE_EXAMPLE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Examples", "image-classification-3d")
+
+
+@app.route('/image/example/<name>')
+def image_example(name):
+    if name not in ("Train3D.zip", "Test3D.zip"):
+        return redirect(url_for('image'))
+    return send_from_directory(IMAGE_EXAMPLE_FOLDER, name, as_attachment=True)
+
+
 @app.route('/image/upload', methods=['POST'])
 def image_upload():
     if job.running:
@@ -361,16 +375,31 @@ def image_upload():
             os.remove(archive)  # keep only the extracted images
         summary = image_dataset.summarize(os.path.join(IMAGE_INPUT_FOLDER, "train"),
                                           os.path.join(IMAGE_INPUT_FOLDER, "test"))
+        summary["volume3d"] = volume_summary(IMAGE_INPUT_FOLDER, summary)
+        summary["dim"] = 3 if summary["volume3d"] else 2
     except image_dataset.DatasetError as e:
         shutil.rmtree(IMAGE_INPUT_FOLDER, ignore_errors=True)
         return _image_upload_error(str(e))
-    if summary["errors"]:
+    if summary["errors"] and not summary["volume3d"]:
         shutil.rmtree(IMAGE_INPUT_FOLDER, ignore_errors=True)
         return _image_upload_error(" ".join(summary["errors"]))
     image_dataset.save_json(summary, os.path.join(IMAGE_INPUT_FOLDER, IMAGE_SUMMARY))
     if _wants_json():
         return jsonify({"redirect": url_for('image_parameters')})
     return redirect(url_for('image_parameters'))
+
+
+def volume_summary(folder, summary):
+    """The 3D view of an upload made of volumes (DICOM series, NIfTI, multi-frame DICOM) usable for
+    3D classification, else None. Uploads with PNG/JPEG/TIFF images are classified in 2D."""
+    if summary["kinds"].get("raster") or not (summary["kinds"].get("dicom") or summary["kinds"].get("nifti")):
+        return None
+    try:
+        summary = image3d_dataset.summarize(os.path.join(folder, "train"), os.path.join(folder, "test"))
+    except Exception:
+        logging.error(traceback.format_exc())
+        return None
+    return summary if summary["volumetric"] and not summary["errors"] else None
 
 
 def _bounded(form, name, cast, low, high, default):
@@ -406,6 +435,44 @@ def image_params_from_form(form, summary):
     }
 
 
+def image3d_params_from_form(form, summary):
+    selected = [n.key for n in NETWORKS_3D if form.get(n.key) == 'true']
+    if not selected:
+        raise ValueError('Select at least one network.')
+    names = {s["name"] for s in summary["series"]}
+    if summary["single_series"]:
+        channels = [SINGLE_SERIES]
+    else:
+        channels = [name for name in form.getlist('channels') if name in names]
+        reference = form.get('reference')
+        if reference in channels:  # the reference series comes first: the others are aligned on its grid
+            channels = [reference] + [c for c in channels if c != reference]
+        if not channels:
+            raise ValueError('Select at least one series.')
+    shapes = {"x".join(map(str, shape)): list(shape) for shape in VOLUME_SHAPES}
+    crop = _bounded(form, 'crop', float, 0.5, 1.0, 1.0)
+    max_folds = min(20, summary["min_class_patients"])
+    positive = form.get('positive_class')
+    return {
+        "models": selected,
+        "mode": "finetune" if form.get('mode') == 'finetune' else "features",
+        "k_folds": _bounded(form, 'k_folds', int, 2, max(2, max_folds), 5),
+        "metric": form.get('optimization_metric') if form.get('optimization_metric') in dict(THRESHOLD_METRICS) else "Balanced Accuracy",
+        "classes": summary["classes"],
+        "positive_class": positive if positive in summary["classes"] else summary["positive_class"],
+        "channels": channels,
+        "shape": shapes.get(form.get('shape'), list(VOLUME_SHAPES[0])),
+        "crop": crop if crop in VOLUME_CROPS else 1.0,
+        "window": form.get('window') if form.get('window') in dict(WINDOW_LABELS) else "auto",
+        "augmentation": {key: form.get(key) == 'true' for key in ("horizontal_flip", "vertical_flip", "rotation", "intensity")},
+        "epochs": _bounded(form, 'epochs', int, 1, 200, 30),
+        "learning_rate": _bounded(form, 'learning_rate', float, 1e-6, 1e-2, 1e-4),
+        "patience": _bounded(form, 'patience', int, 1, 50, 8),
+        "batch_size": _bounded(form, 'batch_size', int, 1, 64, 4),
+        "pretrained": os.environ.get("SIMPLATAB_PRETRAINED", "1") != "0",
+    }
+
+
 @app.route('/image/parameters', methods=['GET', 'POST'])
 def image_parameters():
     if job.running:
@@ -414,6 +481,43 @@ def image_parameters():
     if summary is None:
         flash('Upload Train.zip and Test.zip first.', 'warning')
         return redirect(url_for('image'))
+    volumes3d = summary.get("volume3d")
+    requested = request.form.get('dim') if request.method == 'POST' else request.args.get('dim')
+    dim = 3 if volumes3d and requested != '2' else 2
+    if dim == 2 and summary["errors"]:  # only the 3D view of the upload is usable
+        return redirect(url_for('image_parameters', dim=3))
+
+    if request.method == 'POST' and dim == 3:
+        try:
+            params = image3d_params_from_form(request.form, volumes3d)
+        except ValueError as e:
+            flash(str(e), 'danger')
+            return redirect(url_for('image_parameters'))
+        image_dataset.save_json(params, os.path.join(IMAGE_INPUT_FOLDER, "params.json"))
+        names = [NETWORKS_3D_BY_KEY[key].name for key in params["models"]]
+        clear_materials()
+        from Helpers.image3d.pipeline import run_image3d_pipeline
+        if not job.start(lambda: run_image3d_pipeline(IMAGE_INPUT_FOLDER, params), names,
+                         automator="image-classification", phases=IMAGE_PHASES, initial_phase="prep"):
+            flash('A pipeline is already running.', 'warning')
+        return redirect(url_for('run'))
+
+    if request.method == 'GET' and dim == 3:
+        import torch
+        return render_template(
+            'image/parameters3d.html',
+            automator=get_automator("image-classification"),
+            summary=volumes3d,
+            files_summary=summary,
+            previous_results=has_results(),
+            networks=NETWORKS_3D,
+            shapes=VOLUME_SHAPES,
+            crops=VOLUME_CROPS,
+            threshold_metrics=THRESHOLD_METRICS,
+            window_labels=WINDOW_LABELS,
+            gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+            cpu_count=os.cpu_count(),
+        )
 
     if request.method == 'POST':
         try:
@@ -441,6 +545,7 @@ def image_parameters():
         threshold_metrics=THRESHOLD_METRICS,
         window_labels=WINDOW_LABELS,
         volume_labels=VOLUME_LABELS,
+        volumes3d=bool(volumes3d),
         gpu=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         cpu_count=os.cpu_count(),
     )
@@ -782,7 +887,8 @@ def collect_results(root):
         name = os.path.basename(path)[:-len("_pipeline.pkl")]
         results["models"].append({"path": _relative(path, root), "name": name, "size": os.path.getsize(path),
                                   "requirements": model_requirements(name)})
-    names = {"".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in b.name): b.name for b in BACKBONES}
+    names = {"".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in b.name): b.name
+             for b in list(BACKBONES) + list(NETWORKS_3D)}
     for path in sorted(glob.glob(os.path.join(root, "Models", "*.pt"))):
         stem = os.path.basename(path)[:-3]
         results["models"].append({"path": _relative(path, root), "name": names.get(stem, stem),

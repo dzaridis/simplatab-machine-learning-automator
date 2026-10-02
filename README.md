@@ -8,6 +8,7 @@ explains their predictions and gives you the trained models. Your data never lea
 |---|---|---|---|
 | **Tabular Classification** | `Train.csv`, `Test.csv` | 7 classical (Logistic Regression, SVM, Random Forest, SGD, MLP, Decision Tree, XGBoost) and 4 deep learning (TabPFNv2, TabICL, TabTransformer, TabR) | SHAP |
 | **Image Classification** | `Train.zip`, `Test.zip` of medical or other images (DICOM, NIfTI, PNG, JPEG, BMP, TIFF) | 10 pretrained networks: ResNet-50, EfficientNet-B0/V2-S, ConvNeXt(-V2)-Tiny, ViT-Small, DeiT III-Small, Swin-Tiny, MaxViT-Tiny, DINOv2-Small | Grad-CAM |
+| **3D Image Classification** (same automator) | `Train.zip`, `Test.zip` of studies with one or more series (DICOM series, NIfTI), e.g. T2 + ADC + DWI | 10 3D networks: MedicalNet ResNet-10/18/50, R3D-18, R(2+1)D-18, MC3-18, Video Swin-T, SwinUNETR Swin-ViT (self-supervised on CT), DenseNet-121 3D, DINOv2-Small 2.5D | 3D Grad-CAM |
 | **Time Series Forecasting** | `Train.csv`, `Test.csv` in long format (e.g. repeated measurements of patients), with static, past and future covariates | 10 [neuralforecast](https://github.com/Nixtla/neuralforecast) networks: NHITS, NBEATSx, TiDE, KAN, DLinear, TFT, PatchTST, BiTCN, TCN, TimesNet | Integrated gradients |
 | **Object Detection** | `Train.zip`, `Test.zip` of 2D images or 3D volumes (DICOM, NIfTI, PNG, JPEG, …) with boxes in COCO, YOLO, Pascal VOC, CSV or mask format | 10 pretrained detectors: Faster R-CNN v2, RetinaNet v2, FCOS, Faster R-CNN MobileNetV3, SSDLite (torchvision); RT-DETR, RT-DETRv2, D-FINE-M, Deformable DETR, Conditional DETR (transformers) | D-RISE |
 
@@ -59,6 +60,8 @@ are forecast one after the other, each by a network trained on the points before
 lookback, learning rate and size on these windows). The final networks, trained on all the training series,
 forecast the last H points of every test series.
 
+For 3D studies, the folds are also **grouped by patient**: all the studies of a patient stay in the same fold.
+
 Object detection offers **K-fold cross-validation** (folds grouped by patient folder, early stopping on a part of
 each training fold, final networks retrained on all the images for the median best number of epochs) or a faster
 **hold-out validation** (one split; the network trained on it is the final network). The score threshold that
@@ -84,6 +87,20 @@ Optional steps: data bias assessment on a feature of your choice, correlation-ba
   augmentation and early stopping.
 - For binary problems, choose the positive class (the class to detect) on the configuration page.
 - Keep all the images of a patient in the same zip; the upload warns about identical images in both zips.
+
+**3D studies**: zips of DICOM series and NIfTI volumes (without PNG/JPEG) are classified as 3D studies (they can
+also be classified in 2D, one image per file). Layout: `<class>/<patient>/<study>/<series>`, e.g.
+`Train.zip/malignant/patient_01/study_1/t2/` (DICOM slices) and `…/study_1/adc.nii.gz`:
+- the study level is optional; a series is a folder of DICOM slices, or a NIfTI or multi-frame DICOM file; a folder
+  holding several DICOM series (PACS export) is a study whose series are named after their description;
+- each study is one sample; the series with the same name in every study (e.g. `t2`, `adc`, `dwi`) are chosen on
+  the configuration page and become the input channels: they are read with SimpleITK, reoriented, **aligned in
+  patient coordinates** on a reference series (resampled onto its grid), scaled to [0, 1] (CT window, DICOM window or
+  percentiles), optionally cropped around the centre and resized (32 × 128 × 128 to 128 × 128 × 128 voxels);
+- the first layer of the pretrained networks is adapted to the number of series; feature extraction or fine-tuning
+  with 3D augmentation (rotations, scaling, gamma, contrast, optional flips), as in 2D.
+- Example data: [`Examples/image-classification-3d`](Examples/image-classification-3d) (prostate-like MRI, T2 DICOM
+  series and ADC NIfTI per study), also downloadable from the upload page.
 
 **Time series**: two CSV files in long format, one row per series and time point: `ID` (or `patient_id`), `Time`
 (dates at a regular frequency or integer steps; missing points are filled in) and the numeric `Target`.
@@ -123,10 +140,10 @@ Everything is written to the `Materials` folder, shown on the results page and d
 |---|---|
 | Metrics (AUC, balanced accuracy, F-score, accuracy, sensitivity, specificity; forecasting: MAE, RMSE, sMAPE, MASE vs. a seasonal naive baseline; detection: mAP, AP at IoU 0.5/0.75 (3D: 0.1/0.25/0.5), recall, FROC, precision/recall/F1 and image-level sensitivity/specificity at the threshold) | `<K>_fold_results.xlsx` (mean ± SD) or `holdout_results.xlsx`, `test_results.xlsx`, `Metrics_Plots/` (forecasting) |
 | Curves and confusion matrices | `ROC_Curves/`, `ConfusionMatrices/`, `Detection_Curves/` (precision-recall, FROC, AP per class) |
-| Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps) |
+| Explanations | `Shap_Features/<model>/` (tabular), `GradCAM/<network>/` (images; 3D: the slices where the map is strongest), `Explainability/` (forecasting: integrated gradients; detection: D-RISE maps) |
 | Trained models, usable without Simplatab | `Models/<model>_pipeline.pkl` + `Models/thresholds.json` (tabular), `Models/<network>.pt` (images, torchvision detectors), `Models/<model>.zip` (forecasting, transformers detectors) |
 | Forecasts vs. observed values | `Forecasts/test_forecasts.csv`, `Forecasts/future_forecasts.csv` (beyond the data, without future covariates), `Forecast_Plots/` |
-| Image predictions and classes | `Predictions/<network>_test_predictions.csv`, `classes.csv` |
+| Image predictions and classes | `Predictions/<network>_test_predictions.csv` (one row per image or 3D study), `classes.csv` |
 | Detections drawn on test images (true positives, false positives, missed boxes) | `Detections/` |
 
 Each run replaces the results of the previous one.
@@ -174,6 +191,17 @@ x = torch.from_numpy(np.asarray(square, dtype=np.float32) / 255).permute(2, 0, 1
 p = model(x)[0].detach().numpy()
 k = int(p[1] > info["threshold"]) if info["threshold"] is not None else int(p.argmax())
 print(info["classes"][k], p)
+```
+
+**3D studies**: each `.pt` file takes a (1, C, D, H, W) volume in [0, 1] (the C series of a study, aligned and
+resized as in training). The code of the results page reads, aligns and resizes the series with SimpleITK:
+```bash
+pip install torch numpy SimpleITK==2.5.2
+```
+```python
+model = torch.jit.load("Materials/Models/MedicalNet_ResNet-10.pt", _extra_files=meta)
+info = json.loads(meta["simplatab.json"])   # classes, threshold, series (channels), volume shape, crop, window
+print(predict(["new_study/t2", "new_study/adc.nii.gz"]))   # predict() and its helpers: see the results page
 ```
 The code of the results page also reads DICOM (modality LUT, CT or DICOM window, multi-frame) and NIfTI files
 exactly as for training.
@@ -230,11 +258,15 @@ The code of the results page also covers the transformers detectors, DICOM and N
   seconds to a minute per training; TimesNet is much slower without a GPU and is not selected by default.
 - **TabPFNv2 and TabICL** are pretrained foundation models (no training); TabPFNv2 is limited to 10,000 samples,
   500 features and 10 classes. **TabTransformer** and **TabR** are trained with early stopping.
+- **3D networks**: MedicalNet ResNets are pretrained on 23 CT and MRI datasets, the video networks on Kinetics-400
+  (slices play the role of frames), the SwinUNETR encoder is self-supervised on 5,050 CT volumes; DenseNet-121 3D
+  is trained from scratch (fine-tuning only makes sense with it); the 2.5D model applies DINOv2 to up to 16 slices and
+  combines them by attention pooling. Feature extraction takes seconds per study on CPU; fine-tuning needs a GPU.
 - **Detectors** are pretrained on COCO and fine-tuned on your boxes, with images resized to a square (320 to
   1024 px). A GPU is strongly recommended: on CPU, fine-tuning takes minutes per epoch for the larger networks;
   Faster R-CNN MobileNetV3 and SSDLite are the fast choices. Hold-out validation trains each network once.
-- Pretrained weights (TabPFNv2, TabICL, the 10 image networks and the 10 detectors) are included in the Docker
-  images; from source they are downloaded from the Hugging Face Hub or PyTorch on first use.
+- Pretrained weights (TabPFNv2, TabICL, the 10 image networks, the 3D networks and the 10 detectors) are included
+  in the Docker images; from source they are downloaded from the Hugging Face Hub, PyTorch or GitHub on first use.
 - A GPU is used automatically when available. A model that cannot run on a dataset is skipped and reported,
   and the others still complete.
 
@@ -250,10 +282,11 @@ version. For a new minor or major version, create a tag such as `1.2.0`; the nex
 python -m unittest discover tests
 ```
 Code layout: `app.py` (web app), `Helpers/` (tabular pipeline), `Helpers/image/` (image pipeline),
+`Helpers/image3d/` (3D image pipeline),
 `Helpers/forecasting/` (forecasting pipeline), `Helpers/detection/` (object detection pipeline), `web/`
 (automator catalog and background jobs), `templates/` and `static/` (interface), `ci/` (release versioning).
 `Examples/` holds the outputs of example runs on the Iris and breast cancer datasets, the example time series and
-the example detection data. Set `SIMPLATAB_PRETRAINED=0` to run the detection automator without downloading weights
+the example detection and 3D data. Set `SIMPLATAB_PRETRAINED=0` to run the detection and 3D automators without downloading weights
 (randomly initialised networks, e.g. for tests).
 
 ## Authors

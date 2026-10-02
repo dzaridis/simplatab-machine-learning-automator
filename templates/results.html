@@ -46,8 +46,9 @@
 
     {% if results.info.mode %}
     <p class="small-muted mb-3"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>
-        {{ 'Fine-tuning' if results.info.mode == 'finetune' else 'Feature extraction' }} · {{ results.info.k_folds }}-fold cross-validation ·
-        threshold metric {{ results.info.metric }} · {{ results.info.device }}{% if results.info.skipped_images %} · {{ results.info.skipped_images }} unreadable image(s) skipped{% endif %}</p>
+        {% if results.info.dim == 3 %}3D · series {{ results.info.channels | join(', ') | replace('*', 'single series') }} · volume {{ results.info.shape | join(' × ') }} ·{% endif %}
+        {{ 'Fine-tuning' if results.info.mode == 'finetune' else 'Feature extraction' }} · {{ results.info.k_folds }}-fold cross-validation{% if results.info.dim == 3 %} grouped by patient{% endif %} ·
+        threshold metric {{ results.info.metric }} · {{ results.info.device }}{% if results.info.skipped_images %} · {{ results.info.skipped_images }} {{ 'study(ies)' if results.info.dim == 3 else 'unreadable image(s)' }} skipped{% endif %}</p>
     {% endif %}
 
     {% if results.skipped %}
@@ -162,7 +163,8 @@
                 </div>
                 <div class="table-responsive">
                     <table class="table metric-table mb-0">
-                        <thead><tr><th scope="col">Number</th><th scope="col">Class</th><th scope="col">Training images</th><th scope="col">Test images</th></tr></thead>
+                        {% set unit = 'studies' if results.info.dim == 3 else 'images' %}
+                        <thead><tr><th scope="col">Number</th><th scope="col">Class</th><th scope="col">Training {{ unit }}</th><th scope="col">Test {{ unit }}</th></tr></thead>
                         <tbody>
                             {% for row in results.classes %}
                             <tr><td class="tabular-nums">{{ row['index'] }}</td><td class="fw-semibold">{{ row['class'] }}</td>
@@ -208,7 +210,7 @@
         <div class="tab-pane fade" id="pane-shap" role="tabpanel" aria-labelledby="tab-shap" tabindex="0">
             {% if is_image %}
             {% if results.gradcam %}
-            <p class="small-muted">Grad-CAM highlights the image regions that drove each prediction on the test set (red: strongest).
+            <p class="small-muted">{% if results.info.dim == 3 %}3D Grad-CAM highlights the regions of each test study that drove its prediction (red: strongest), on the slices where it is strongest, over the first series.{% else %}Grad-CAM highlights the image regions that drove each prediction on the test set (red: strongest).{% endif %}
                 For each class, the most confident errors are shown first, marked ✗, then the most confident correct predictions.</p>
             <ul class="nav nav-pills flex-wrap gap-1 mb-3" role="tablist">
                 {% for model in results.gradcam %}
@@ -221,7 +223,7 @@
             <div class="tab-content">
                 {% for model, items in results.gradcam.items() %}
                 <div class="tab-pane fade {% if loop.first %}show active{% endif %}" id="cam-{{ loop.index }}" role="tabpanel">
-                    <div class="row g-3">{% for item in items %}<div class="col-md-6 col-xl-4">{{ figure(item) }}</div>{% endfor %}</div>
+                    <div class="row g-3">{% for item in items %}<div class="{{ 'col-12' if results.info.dim == 3 else 'col-md-6 col-xl-4' }}">{{ figure(item) }}</div>{% endfor %}</div>
                 </div>
                 {% endfor %}
             </div>
