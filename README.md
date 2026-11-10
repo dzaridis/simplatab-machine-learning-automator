@@ -1,6 +1,6 @@
 # Simplatab
 
-**No-code, self-hosted machine learning for research data** (free for non-commercial research; see [License](#license)). Upload a training set and a test set in the
+**No-code, self-hosted machine learning for research data** (open source under the [MIT license](#license)). Upload a training set and a test set in the
 browser; Simplatab trains and compares many models with cross-validation, evaluates them on your test set,
 explains their predictions and gives you the trained models. Your data never leaves the machine running it.
 
@@ -456,9 +456,4 @@ PhD; and **Dimitrios I. Fotiadis**, Professor of Biomedical Technology, Universi
 
 ## License
 
-Simplatab is free for **non-commercial use only**: research, teaching, personal study, and use by universities,
-hospitals, public research and other non-profit or public organisations. Commercial use (selling it, offering it as a
-paid service or using it to make money) is not allowed. The terms are the
-[PolyForm Noncommercial License 1.0.0](LICENSE). For any other use, contact the author.
-
-Versions released before this change remain available under the MIT license they were published with.
+Simplatab is released under the [MIT License](LICENSE). Copyright (c) 2024-2026 Dimitrios I. Zaridis.

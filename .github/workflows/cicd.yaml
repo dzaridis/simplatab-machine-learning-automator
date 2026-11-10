@@ -17,7 +17,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest is now Ubuntu 26.04, which has no Python 3.9 build for actions/setup-python
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -42,7 +43,7 @@ jobs:
   # The MCP server (mcp_server/): the worker tests in the Python 3.9 environment of the pipelines, then the
   # MCP client tests with the server in Python 3.12, every automator run end to end as an agent would
   mcp-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Python 3.9 is not available on Ubuntu 26.04 (ubuntu-latest)
 
     steps:
       - name: Checkout repository
